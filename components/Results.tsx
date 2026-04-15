@@ -1,5 +1,6 @@
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import DOMPurify from 'dompurify';
 import { ExamResult, Question, PerformanceAnalysis } from '../types';
 import { refineMasteryInsight, generatePerformanceAnalysis } from '../services/geminiService';
 
@@ -205,7 +206,7 @@ const Results: React.FC<ResultsProps> = ({ result, questions, onRestart, onRetak
                     </button>
                     {refinedInsights[q.id] && (
                       <div className="bg-indigo-50 dark:bg-indigo-900/30 p-6 rounded-2xl border border-indigo-100 animate-slide-up text-sm">
-                         <div dangerouslySetInnerHTML={{ __html: refinedInsights[q.id].replace(/\n/g, '<br/>') }} />
+                         <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(refinedInsights[q.id].replace(/\n/g, '<br/>')) }} />
                       </div>
                     )}
                   </div>

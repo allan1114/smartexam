@@ -12,9 +12,11 @@
     "clean": "rm -rf dist node_modules/.vite"
   },
   "dependencies": {
+    "@google/genai": "latest",
+    "@types/dompurify": "^3.0.5",
+    "dompurify": "^3.4.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "@google/genai": "latest"
+    "react-dom": "^19.2.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

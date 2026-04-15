@@ -71,7 +71,7 @@ export const parseDocumentToQuestions = async (
   answerFormat: AnswerFormat = 'AUTO',
   contentRange?: string
 ): Promise<Question[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
   
   const rangeText = contentRange ? ` ONLY focus on the following section: "${contentRange}".` : ' Scan the ENTIRE document length to ensure a balanced sampling of questions.';
   
@@ -180,7 +180,7 @@ export const refineMasteryInsight = async (
   correctAnswer: string,
   modelName: string = 'gemini-3-flash-preview'
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
   const prompt = `Provide a detailed "Mastery Insight" for this exam question: "${question}". Correct answer: "${correctAnswer}". Explain the underlying concept deeply and why other options might be confusing.`;
   
   const apiCall = async () => {
@@ -200,7 +200,7 @@ export const refineMasteryInsight = async (
 };
 
 export const getChatbotResponse = async (history: any[], message: string, context: string) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
   const apiCall = async () => {
     const chat = ai.chats.create({
       model: 'gemini-3-flash-preview',
@@ -224,7 +224,7 @@ export const generatePerformanceAnalysis = async (
   questions: Question[],
   answers: UserAnswer[]
 ): Promise<PerformanceAnalysis> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
   const summary = questions.map(q => ({ 
     topic: q.topic, 
     correct: answers.find(a => a.questionId === q.id)?.isCorrect 
