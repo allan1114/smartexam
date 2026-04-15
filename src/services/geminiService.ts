@@ -1,60 +1,28 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis } from "../types";
-
-/**
- * Helper to clean JSON response from markdown blocks
- */
-const cleanJsonResponse = (text: string): string => {
-  if (!text) return "";
-  // Remove markdown code blocks if present
-  let cleaned = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-  // If there's still markdown after cleaning, try a more aggressive approach
-  if (cleaned.includes('```')) {
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) cleaned = match[0];
-  }
-  return cleaned;
-};
-
-/**
- * Fisher-Yates Shuffle Utility
- */
-const shuffleArray = <T>(array: T[]): T[] => {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-};
+import { cleanJsonResponse, shuffleArray } from "../utils/fileProcessor";
+import { ApiError, isRetryableError } from "../utils/errors";
 
 /**
  * Enhanced fetch with robust retry logic for transient API/Network errors.
  */
 const fetchWithRetry = async <T>(fn: () => Promise<T>, maxRetries = 3, initialDelay = 1500): Promise<T> => {
-  let lastError: any;
+  let lastError: Error = new Error('Unknown error');
   for (let i = 0; i <= maxRetries; i++) {
     try {
       return await fn();
-    } catch (err: any) {
-      lastError = err;
-      const errorMessage = err.message || String(err);
-      
-      const isRetryable = 
-        errorMessage.includes('Rpc failed') || 
-        errorMessage.includes('500') || 
-        errorMessage.includes('fetch') ||
-        errorMessage.includes('NetworkError') ||
-        errorMessage.includes('deadline exceeded');
-      
-      if (isRetryable && i < maxRetries) {
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const errorMessage = lastError.message || String(err);
+
+      if (isRetryableError(err) && i < maxRetries) {
         const backoff = initialDelay * Math.pow(2, i);
         console.warn(`Attempt ${i + 1} failed: ${errorMessage.substring(0, 100)}. Retrying in ${backoff}ms...`);
         await new Promise(resolve => setTimeout(resolve, backoff));
         continue;
       }
-      throw err;
+      throw lastError;
     }
   }
   throw lastError;
@@ -136,7 +104,7 @@ export const parseDocumentToQuestions = async (
     if (!rawText) throw new Error("EMPTY_RESPONSE: AI returned an empty result.");
     
     const jsonStr = cleanJsonResponse(rawText);
-    let parsed: any;
+    let parsed: unknown;
     try {
       parsed = JSON.parse(jsonStr);
     } catch (parseError) {
@@ -144,27 +112,45 @@ export const parseDocumentToQuestions = async (
       throw new Error("PARSING_ERROR: The AI output was not valid JSON. Try reducing the question count.");
     }
 
-    const questions = parsed.questions || (Array.isArray(parsed) ? parsed : []); 
+    const questionsData = typeof parsed === 'object' && parsed !== null && 'questions' in parsed
+      ? (parsed as { questions?: unknown }).questions
+      : Array.isArray(parsed) ? parsed : [];
+
+    const questions = Array.isArray(questionsData) ? questionsData : []; 
     
     if (questions.length === 0) throw new Error("NO_QUESTIONS: No questions were extracted.");
 
     // Secondary layer of randomization: Shuffle options and map correct answers
-    return questions.map((q: any) => {
-      const cleanOption = (t: string) => String(t).replace(/^[A-E][).]\s*/i, '').trim();
-      const normalizedCorrect = cleanOption(q.correctAnswer);
-      const shuffledOptions = shuffleArray((q.options || []) as string[]);
-      
-      const matchingOption = shuffledOptions.find((opt: string) => cleanOption(opt).toLowerCase() === normalizedCorrect.toLowerCase());
+    return questions
+      .filter((q: unknown): q is Question => {
+        return (
+          typeof q === 'object' &&
+          q !== null &&
+          'id' in q &&
+          'question' in q &&
+          'options' in q &&
+          'correctAnswer' in q
+        );
+      })
+      .map((q: Question) => {
+        const cleanOption = (t: string) => String(t).replace(/^[A-E][).]\s*/i, '').trim();
+        const normalizedCorrect = cleanOption(q.correctAnswer);
+        const shuffledOptions = shuffleArray(q.options);
 
-      return { 
-        ...q, 
-        options: shuffledOptions,
-        correctAnswer: matchingOption || q.correctAnswer
-      };
-    });
-  } catch (error: any) {
-    console.error("Full Gemini Service Error:", error);
-    const msg = error.message || String(error);
+        const matchingOption = shuffledOptions.find(
+          (opt: string) => cleanOption(opt).toLowerCase() === normalizedCorrect.toLowerCase()
+        );
+
+        return {
+          ...q,
+          options: shuffledOptions,
+          correctAnswer: matchingOption || q.correctAnswer
+        };
+      });
+  } catch (error: unknown) {
+    const errorObj = error instanceof Error ? error : new Error(String(error));
+    console.error("Full Gemini Service Error:", errorObj);
+    const msg = errorObj.message;
     
     if (msg.includes('Rpc failed') || msg.includes('Code 6')) {
       throw new Error(`NETWORK_TIMEOUT: 連線至 AI 伺服器時發生 RPC 錯誤 (Code 6)。請嘗試：1. 減少題目數量 2. 稍後再試一次。`);
@@ -199,7 +185,16 @@ export const refineMasteryInsight = async (
   }
 };
 
-export const getChatbotResponse = async (history: any[], message: string, context: string) => {
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export const getChatbotResponse = async (
+  history: ChatMessage[],
+  message: string,
+  context: string
+): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
   const apiCall = async () => {
     const chat = ai.chats.create({
