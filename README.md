@@ -137,16 +137,73 @@ docker run -p 3000:3000 -e GEMINI_API_KEY=your_key_here smartexam
 
 ## ⚙️ Configuration
 
-### Environment Variables
+### 🔐 API Key Management
 
-Create a `.env.local` file in the project root:
+SmartExam supports two secure ways to configure your Gemini API key:
 
-```env
-# Required: Google Gemini API Key
-GEMINI_API_KEY=your_gemini_api_key_here
+#### Method 1️⃣: Direct API Key (Development)
 
-# Get your API key from: https://aistudio.google.com/app/apikey
+For local development only. API key is exposed to browser:
+
+```bash
+# 1. Copy environment template
+cp .env.example .env.local
+
+# 2. Add your Gemini API key
+echo "VITE_GEMINI_API_KEY=your_gemini_api_key_here" >> .env.local
+
+# 3. Start dev server
+npm run dev
 ```
+
+**⚠️ Security Warning:** Never commit `.env.local` to version control. The API key will be visible to users in browser DevTools.
+
+---
+
+#### Method 2️⃣: Backend Proxy (Production - Recommended ⭐)
+
+Use a secure backend proxy to hide your API key:
+
+```bash
+# 1. Copy environment template
+cp .env.example .env.local
+
+# 2. Enable proxy mode (development)
+echo "VITE_USE_GEMINI_PROXY=true" >> .env.local
+
+# 3. For Vercel deployment, add server-side environment variable:
+# Go to Vercel Dashboard → Project Settings → Environment Variables
+# Add: GEMINI_API_KEY=your_key_here (server-side only)
+```
+
+**Benefits of Proxy Mode:**
+- ✅ API key never exposed to browser
+- ✅ Request rate limiting
+- ✅ API usage auditing
+- ✅ Better error handling
+- ✅ Production-ready security
+
+---
+
+### Getting Your Gemini API Key
+
+1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Click "Get API Key"
+3. Copy your API key
+4. Add it to your environment configuration
+
+---
+
+### Environment Variables Reference
+
+| Variable | Mode | Value | Required |
+|----------|------|-------|----------|
+| `VITE_GEMINI_API_KEY` | Development | Your API key | Yes (Dev only) |
+| `VITE_USE_GEMINI_PROXY` | Both | `true`/`false` | No (Default: false) |
+| `VITE_GEMINI_PROXY_URL` | Both | `/api/proxy-gemini` | No (Custom proxy URL) |
+| `GEMINI_API_KEY` | Production | Your API key | Yes (Server-side only) |
+
+---
 
 ### Available Scripts
 
@@ -156,7 +213,11 @@ GEMINI_API_KEY=your_gemini_api_key_here
 | `npm run build` | Build for production |
 | `npm run preview` | Preview production build locally |
 | `npm run type-check` | Run TypeScript type checking |
-| `npm run clean` | Clean build artifacts and cache |
+| `npm run test` | Run test suite |
+| `npm run test:ui` | Run tests with UI |
+| `npm run test:coverage` | Generate coverage report |
+| `npm run lint` | Lint code |
+| `npm run clean` | Clean build artifacts |
 
 ---
 
@@ -219,21 +280,29 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 ### Deploy to Vercel (Recommended)
 
-The easiest way to deploy is using Vercel:
+The easiest way to deploy is using Vercel with secure API key handling:
 
-#### Option 1: Via Vercel Dashboard
+#### Step 1: Prepare Your Repository
+
+```bash
+# Make sure you're using proxy mode for production
+git commit -m "Enable API proxy mode for production"
+git push
+```
+
+#### Option A: Via Vercel Dashboard (Recommended)
 
 1. Go to [vercel.com](https://vercel.com) and sign in
 2. Click **"Add New..."** → **"Project"**
 3. Import your GitHub repository
-4. Add environment variable:
+4. **Important:** Add **server-side** environment variable:
+   - Click **"Environment Variables"**
    - **Name:** `GEMINI_API_KEY`
    - **Value:** Your Gemini API key
+   - **Scope:** Production (not client-side!)
 5. Click **Deploy**
 
-Your app will be live at `https://smartexam-ai.vercel.app`
-
-#### Option 2: Via Vercel CLI
+#### Option B: Via Vercel CLI
 
 ```bash
 # Install Vercel CLI
@@ -242,12 +311,24 @@ npm i -g vercel
 # Login
 vercel login
 
-# Deploy
+# Deploy (adds environment variables interactively)
 vercel
 
-# Deploy to production
-vercel --prod
+# Or deploy to production with environment variable
+vercel --prod --env GEMINI_API_KEY=your_api_key_here
 ```
+
+#### Verify Secure Deployment
+
+After deployment, verify your API key is NOT exposed:
+
+```bash
+# Check build output for API key leaks
+curl https://your-app.vercel.app
+# Search page source for "GEMINI_API_KEY" - should be EMPTY ✅
+```
+
+Your app will be live at `https://smartexam-ai.vercel.app` with secure API proxy!
 
 For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md)
 
@@ -408,6 +489,78 @@ git push origin feature/my-feature
 - Add comments for complex logic
 - Update documentation for new features
 - Write tests for new functionality
+
+---
+
+## 🔒 Security Best Practices
+
+### API Key Security
+
+#### Development Environment
+```bash
+# ✅ SAFE: Use environment variables
+VITE_GEMINI_API_KEY=sk_...
+
+# ❌ UNSAFE: Never hardcode keys
+const API_KEY = "sk_...";
+
+# ❌ UNSAFE: Never commit .env file
+git add .env  # DON'T DO THIS
+```
+
+#### Production Environment
+
+**Always use the backend proxy method:**
+
+1. **Add API key as server-side environment variable in Vercel:**
+   - Dashboard → Project → Settings → Environment Variables
+   - Set `GEMINI_API_KEY` with scope: **Production** only
+   - Never expose to client
+
+2. **Verify deployment security:**
+   ```bash
+   curl https://your-app.vercel.app > page.html
+   grep -i "api_key\|vite_gemini" page.html
+   # Should return nothing (✅ secure)
+   ```
+
+3. **Monitor usage:**
+   - Enable Vercel Analytics
+   - Check Google Cloud Console for quota usage
+   - Set up billing alerts
+
+### Data Security
+
+- ✅ Exam history is stored locally (no cloud)
+- ✅ No user personal data collected
+- ✅ All API calls go through secure HTTPS
+- ✅ Input validation on all document uploads
+
+### Dependencies Security
+
+```bash
+# Regular security audits
+npm audit
+
+# Fix vulnerabilities
+npm audit fix
+
+# Check for outdated packages
+npm outdated
+```
+
+### Rate Limiting
+
+The proxy includes built-in rate limiting:
+- 100 requests per hour per IP
+- Configurable in `api/proxy-gemini.ts`
+- Returns 429 status for exceeded limits
+
+### Compliance
+
+- GDPR compliant (no data storage)
+- No tracking pixels or analytics
+- MIT licensed (open source)
 
 ---
 

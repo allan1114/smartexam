@@ -69,7 +69,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart }) => {
             />
             {questionCount > 30 && (
               <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-2 font-bold leading-tight">
-                Large requests (>30) may time out. Consider breaking them into smaller sessions.
+                Large requests (&gt;30) may time out. Consider breaking them into smaller sessions.
               </p>
             )}
           </div>
