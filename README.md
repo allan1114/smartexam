@@ -219,6 +219,111 @@ echo "VITE_USE_GEMINI_PROXY=true" >> .env.local
 | `npm run lint` | Lint code |
 | `npm run clean` | Clean build artifacts |
 
+**Quick Start Command:**
+```bash
+npm run dev  # Start at http://localhost:3000 (or 3001/5173 if port occupied)
+```
+
+---
+
+## ⚙️ Settings Panel
+
+SmartExam includes a comprehensive **Settings Panel** for managing configuration without code changes.
+
+### Accessing Settings
+
+Click the **⚙️ Settings button** (gear icon) in the top-right corner of the app header.
+
+### Available Settings
+
+#### 🔐 API Key Management
+- **Set/Update API Key**: Enter your Gemini API key directly in the app
+- **Validation**: Automatically validates key format
+- **Security**: Stored securely in browser localStorage
+- **Clear Key**: Option to remove stored key
+
+```
+Location: Settings → API Key section
+Type: Password input (encrypted display)
+Persists: Yes (localStorage)
+```
+
+#### 🤖 AI Model Selection
+- **Gemini 3 Flash** (Default) - Fast & efficient, best for general use
+- **Gemini 2.0 Flash** - Balanced performance and quality
+- **Gemini 2.0 Pro** - Advanced model for complex tasks
+- **Gemini 2.0 Flash Experimental** - Latest experimental features
+
+```
+Location: Settings → AI Model section
+Type: Dropdown selector
+Persists: Yes (localStorage)
+Affects: Question generation, analysis, chatbot
+```
+
+#### 🔄 Proxy Configuration (Production)
+- **Enable API Proxy**: Use backend proxy for production deployments
+- **Proxy URL**: Configure custom proxy endpoint
+- **Benefits**: API key stays hidden from browser, rate limiting, monitoring
+
+```
+Location: Settings → Proxy Configuration section
+Type: Toggle + URL input
+Persists: Yes (localStorage)
+Recommended for: Production deployments
+```
+
+#### 📋 Log Level Configuration
+- **DEBUG**: All messages (development)
+- **INFO**: General information
+- **WARN**: Warnings only (production default)
+- **ERROR**: Errors only
+
+```
+Location: Settings → Log Level section
+Type: Dropdown selector
+Persists: Yes (localStorage)
+Check logs in: Browser DevTools → Console
+```
+
+### Settings Features
+
+✅ **Persistent Storage** - Settings saved in localStorage  
+✅ **Real-time Validation** - Instant feedback on inputs  
+✅ **Reset Option** - One-click reset to defaults  
+✅ **Save Confirmation** - Visual feedback when settings saved  
+✅ **Dark Mode Support** - Settings panel adapts to theme  
+
+### Example Settings Workflow
+
+```
+1. Click ⚙️ Settings button
+2. Paste your Gemini API key
+3. Select preferred AI model
+4. Enable proxy if using production deployment
+5. Adjust log level for debugging (optional)
+6. Click "Save Settings"
+7. Settings persist automatically
+```
+
+### How It Works
+
+- **Dynamic Configuration**: All AI calls automatically use settings from localStorage
+- **Environment Fallback**: If no localStorage key exists, falls back to `VITE_GEMINI_API_KEY` env var
+- **No Code Changes Required**: Update settings without rebuilding
+
+### API Key Priority
+
+Settings panel checks API keys in this order:
+1. localStorage (user-configured in Settings)
+2. Environment variable (`VITE_GEMINI_API_KEY`)
+3. Error if none found
+
+This allows:
+- Development with env vars
+- Users to override with Settings panel
+- Production deployment with backend proxy
+
 ---
 
 ## 🎯 Usage
