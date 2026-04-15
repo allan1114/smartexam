@@ -17,7 +17,7 @@ export default defineConfig(({ mode, command }) => {
       // Use import.meta.env.VITE_GEMINI_API_KEY instead
       resolve: {
         alias: {
-          '@': path.resolve(__dirname, '.'),
+          '@': path.resolve(__dirname, 'src'),
         }
       }
     };
