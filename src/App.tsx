@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AppState, ExamConfig, Question, ExamResult, UserAnswer, DocumentSource } from './types';
 import { parseDocumentToQuestions } from './services/geminiService';
 import { generateUniqueId } from './utils/fileProcessor';
+import { logger } from './utils/logger';
 import Header from './components/Header';
 import Home from './components/Home';
 import ExamSetup from './components/ExamSetup';
@@ -43,7 +44,7 @@ const App: React.FC = () => {
         setHistory(Array.isArray(parsed) ? parsed.filter(item => item !== null && typeof item === 'object' && item.id) : []);
       }
     } catch (e) {
-      console.error("Failed to load history", e);
+      logger.error("Failed to load exam history from localStorage", "App.initialization", e);
     }
   }, []);
 
@@ -128,7 +129,7 @@ const App: React.FC = () => {
       try {
         localStorage.setItem('smart_exam_history', JSON.stringify(updated));
       } catch (e) {
-        console.warn("History storage failed", e);
+        logger.warn("Failed to save exam history to localStorage", "App.finishExam", e);
       }
       return updated;
     });
@@ -173,7 +174,7 @@ const App: React.FC = () => {
     if (confirmed) {
       localStorage.removeItem('smart_exam_history');
       setHistory([]);
-      console.log("History successfully cleared.");
+      logger.info("Exam history cleared by user", "App.clearAllHistory");
     }
   }, []);
 

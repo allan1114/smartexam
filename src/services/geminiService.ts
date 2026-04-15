@@ -3,6 +3,7 @@ import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis } from "../types";
 import { cleanJsonResponse, shuffleArray } from "../utils/fileProcessor";
 import { ApiError, isRetryableError } from "../utils/errors";
+import { logger } from "../utils/logger";
 
 /**
  * Enhanced fetch with robust retry logic for transient API/Network errors.
@@ -18,7 +19,7 @@ const fetchWithRetry = async <T>(fn: () => Promise<T>, maxRetries = 3, initialDe
 
       if (isRetryableError(err) && i < maxRetries) {
         const backoff = initialDelay * Math.pow(2, i);
-        console.warn(`Attempt ${i + 1} failed: ${errorMessage.substring(0, 100)}. Retrying in ${backoff}ms...`);
+        logger.warn(`Attempt ${i + 1} failed: ${errorMessage.substring(0, 100)}. Retrying in ${backoff}ms...`, 'geminiService.fetchWithRetry');
         await new Promise(resolve => setTimeout(resolve, backoff));
         continue;
       }
@@ -108,7 +109,7 @@ export const parseDocumentToQuestions = async (
     try {
       parsed = JSON.parse(jsonStr);
     } catch (parseError) {
-      console.error("JSON Parse Error. Raw text head:", rawText.substring(0, 200));
+      logger.error("JSON parse error from AI response", 'geminiService.parseDocumentToQuestions', { rawTextHead: rawText.substring(0, 200) });
       throw new Error("PARSING_ERROR: The AI output was not valid JSON. Try reducing the question count.");
     }
 
@@ -149,7 +150,7 @@ export const parseDocumentToQuestions = async (
       });
   } catch (error: unknown) {
     const errorObj = error instanceof Error ? error : new Error(String(error));
-    console.error("Full Gemini Service Error:", errorObj);
+    logger.error("Failed to parse document into questions", 'geminiService.parseDocumentToQuestions', errorObj);
     const msg = errorObj.message;
     
     if (msg.includes('Rpc failed') || msg.includes('Code 6')) {

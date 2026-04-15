@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { logger } from './utils/logger';
 
 const rootElement = document.getElementById('root');
 
@@ -16,7 +17,7 @@ try {
     </React.StrictMode>
   );
 } catch (error) {
-  console.error("Application Failed to Mount:", error);
+  logger.error("Application failed to mount to root element", "index.root", error);
   rootElement.innerHTML = `
     <div style="padding: 2rem; color: #ef4444; font-family: sans-serif; text-align: center;">
       <h1 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem;">Unable to Load Application</h1>
