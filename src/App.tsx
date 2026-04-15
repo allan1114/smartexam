@@ -11,6 +11,7 @@ import ExamPortal from './components/ExamPortal';
 import Results from './components/Results';
 import ChatBot from './components/ChatBot';
 import ErrorBoundary from './components/ErrorBoundary';
+import Settings from './components/Settings';
 
 
 const App: React.FC = () => {
@@ -22,6 +23,7 @@ const App: React.FC = () => {
   const [error, setError] = useState<{message: string, type: string} | null>(null);
   const [history, setHistory] = useState<ExamResult[]>([]);
   const [isDark, setIsDark] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     // Initialize Theme
@@ -225,7 +227,8 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300">
-        <Header onLogoClick={reset} isDark={isDark} toggleTheme={toggleTheme} />
+        <Header onLogoClick={reset} isDark={isDark} toggleTheme={toggleTheme} onSettingsClick={() => setShowSettings(true)} />
+        <Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
 
         <main className="flex-grow container mx-auto px-4 py-8 max-w-5xl">
         {renderError()}

@@ -4,9 +4,10 @@ interface HeaderProps {
   onLogoClick: () => void;
   isDark: boolean;
   toggleTheme: () => void;
+  onSettingsClick: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ onLogoClick, isDark, toggleTheme }) => {
+const Header: React.FC<HeaderProps> = ({ onLogoClick, isDark, toggleTheme, onSettingsClick }) => {
   return (
     <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-40 transition-colors duration-300">
       <div className="container mx-auto px-4 py-4 max-w-5xl flex justify-between items-center">
@@ -25,6 +26,13 @@ const Header: React.FC<HeaderProps> = ({ onLogoClick, isDark, toggleTheme }) => 
           <div className="hidden md:flex items-center space-x-4 text-sm font-medium text-slate-500 dark:text-slate-400">
             <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-full text-xs">Powered by Gemini 3</span>
           </div>
+          <button
+            onClick={onSettingsClick}
+            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+            title="Settings"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /></svg>
+          </button>
           <button
             onClick={toggleTheme}
             className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
