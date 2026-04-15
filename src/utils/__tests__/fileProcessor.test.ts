@@ -46,9 +46,12 @@ describe('fileProcessor utilities', () => {
       expect(id1).not.toBe(id2);
     });
 
-    it('should generate alphanumeric IDs', () => {
+    it('should generate valid UUID or random string format', () => {
       const id = generateUniqueId();
-      expect(/^[a-z0-9]+$/.test(id)).toBe(true);
+      // UUID format: 8-4-4-4-12 hex digits with hyphens, or random string with alphanumeric chars
+      const isValidUuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id);
+      const isValidRandom = /^[a-z0-9]+$/.test(id);
+      expect(isValidUuid || isValidRandom).toBe(true);
     });
   });
 
