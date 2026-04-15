@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppState, ExamConfig, Question, ExamResult, UserAnswer, DocumentSource } from './types';
 import { parseDocumentToQuestions } from './services/geminiService';
+import { generateUniqueId } from './utils/fileProcessor';
 import Header from './components/Header';
 import Home from './components/Home';
 import ExamSetup from './components/ExamSetup';
@@ -8,14 +9,8 @@ import LoadingScreen from './components/LoadingScreen';
 import ExamPortal from './components/ExamPortal';
 import Results from './components/Results';
 import ChatBot from './components/ChatBot';
+import ErrorBoundary from './components/ErrorBoundary';
 
-// Safe ID generator fallback
-const generateId = (): string => {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-};
 
 const App: React.FC = () => {
   const [currentState, setCurrentState] = useState<AppState>(AppState.HOME);
@@ -116,7 +111,7 @@ const App: React.FC = () => {
   const finishExam = (userAnswers: UserAnswer[]) => {
     const correctCount = userAnswers.filter(a => a.isCorrect).length;
     const examResult: ExamResult = {
-      id: generateId(),
+      id: generateUniqueId(),
       score: correctCount,
       totalQuestions: questions.length,
       answers: userAnswers,
@@ -227,10 +222,11 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300">
-      <Header onLogoClick={reset} isDark={isDark} toggleTheme={toggleTheme} />
-      
-      <main className="flex-grow container mx-auto px-4 py-8 max-w-5xl">
+    <ErrorBoundary>
+      <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300">
+        <Header onLogoClick={reset} isDark={isDark} toggleTheme={toggleTheme} />
+
+        <main className="flex-grow container mx-auto px-4 py-8 max-w-5xl">
         {renderError()}
 
         {currentState === AppState.HOME && (
@@ -259,10 +255,11 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {currentState !== AppState.LOADING && (
-        <ChatBot context={docSource?.text || "Document content provided via file upload."} />
-      )}
-    </div>
+        {currentState !== AppState.LOADING && (
+          <ChatBot context={docSource?.text || "Document content provided via file upload."} />
+        )}
+      </div>
+    </ErrorBoundary>
   );
 };
 
