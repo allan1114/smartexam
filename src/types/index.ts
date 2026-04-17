@@ -51,6 +51,8 @@ export interface ExamResult {
   mode: ExamMode;
   model: string;
   customName?: string;
+  examSessionId?: string; // Link to ExamSession (Level 2)
+  retakeOf?: string; // ID of the original exam result this is a retake of
 }
 
 export interface PerformanceAnalysis {
@@ -88,4 +90,5 @@ export interface ExamSession {
   documentHash: string; // Hash of source document
   createdAt: number;
   examConfig?: ExamConfig; // Optional: for context
+  retakeOf?: string; // Session ID this is a retake of (for Level 2)
 }

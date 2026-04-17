@@ -195,3 +195,148 @@ export const clearAllExamSessions = (): void => {
     logger.error('Failed to clear all exam sessions', 'examStorage.clearAllExamSessions', e);
   }
 };
+
+/**
+ * Load a session for retake - returns original questions for reuse
+ * Level 2: Enable retaking with fresh option shuffles
+ */
+export const loadSessionForRetake = (sessionId: string): OriginalQuestion[] | null => {
+  try {
+    const session = loadExamSession(sessionId);
+    if (!session) {
+      logger.warn(`Session not found for retake: ${sessionId}`, 'examStorage.loadSessionForRetake');
+      return null;
+    }
+
+    logger.info(`Loaded session for retake: ${sessionId}`, 'examStorage.loadSessionForRetake');
+    return session.originalQuestions;
+  } catch (e) {
+    logger.error(`Failed to load session for retake: ${sessionId}`, 'examStorage.loadSessionForRetake', e);
+    return null;
+  }
+};
+
+/**
+ * Create a retake session from an original session
+ * Level 2: Track retake chain for analytics
+ */
+export const createRetakeSession = (
+  originalSessionId: string,
+  questions: Question[],
+  examConfig?: ExamConfig
+): string | null => {
+  try {
+    const originalSession = loadExamSession(originalSessionId);
+    if (!originalSession) {
+      logger.warn(`Original session not found for retake: ${originalSessionId}`, 'examStorage.createRetakeSession');
+      return null;
+    }
+
+    const retakeSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+    const retakeSession: ExamSession = {
+      id: retakeSessionId,
+      originalQuestions: deepCloneQuestions(questions),
+      optionMappings: questions.map(q => ({
+        questionId: q.id,
+        indexMap: {}
+      })),
+      documentHash: originalSession.documentHash,
+      createdAt: Date.now(),
+      examConfig,
+      retakeOf: originalSessionId // Track that this is a retake
+    };
+
+    const storageKey = STORAGE_KEY_PREFIX + retakeSessionId;
+    localStorage.setItem(storageKey, JSON.stringify(retakeSession));
+
+    // Update index
+    const index = getSessionIndex();
+    index.push(retakeSessionId);
+    if (index.length > MAX_SESSIONS) {
+      const toDelete = index.shift();
+      if (toDelete) {
+        localStorage.removeItem(STORAGE_KEY_PREFIX + toDelete);
+      }
+    }
+    localStorage.setItem(STORAGE_INDEX_KEY, JSON.stringify(index));
+
+    logger.info(`Retake session created: ${retakeSessionId} (retake of ${originalSessionId})`, 'examStorage.createRetakeSession');
+    return retakeSessionId;
+  } catch (e) {
+    logger.error(`Failed to create retake session for: ${originalSessionId}`, 'examStorage.createRetakeSession', e);
+    return null;
+  }
+};
+
+/**
+ * Get retake chain - shows original session and all retakes
+ * Level 2: Track exam attempt history
+ */
+export const getRetakeChain = (sessionId: string): ExamSession[] => {
+  try {
+    const chain: ExamSession[] = [];
+    let currentId: string | undefined = sessionId;
+
+    // Walk backwards to find the original session
+    const visited = new Set<string>();
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const session = loadExamSession(currentId);
+      if (!session) break;
+
+      chain.unshift(session);
+      currentId = session.retakeOf;
+    }
+
+    // Find all retakes of this session (forward chain)
+    const allSessions = listExamSessions();
+    const findRetakes = (parentId: string): ExamSession[] => {
+      return allSessions.filter(s => s.retakeOf === parentId);
+    };
+
+    const addRetakes = (baseId: string) => {
+      const retakes = findRetakes(baseId);
+      for (const retake of retakes) {
+        chain.push(retake);
+        addRetakes(retake.id);
+      }
+    };
+
+    if (chain.length > 0) {
+      addRetakes(chain[chain.length - 1].id);
+    }
+
+    return chain;
+  } catch (e) {
+    logger.error(`Failed to get retake chain for: ${sessionId}`, 'examStorage.getRetakeChain', e);
+    return [];
+  }
+};
+
+/**
+ * Count how many times this specific session has been retaken
+ * Level 2: For analytics and performance tracking
+ */
+export const getRetakeCount = (sessionId: string): number => {
+  try {
+    const allSessions = listExamSessions();
+    let count = 0;
+
+    // Count how many sessions have this sessionId as their retakeOf
+    const countDirectRetakes = (parentId: string): number => {
+      let total = 0;
+      const directRetakes = allSessions.filter(s => s.retakeOf === parentId);
+      for (const retake of directRetakes) {
+        total += 1 + countDirectRetakes(retake.id);
+      }
+      return total;
+    };
+
+    count = countDirectRetakes(sessionId);
+    return count;
+  } catch (e) {
+    logger.error(`Failed to get retake count for: ${sessionId}`, 'examStorage.getRetakeCount', e);
+    return 0;
+  }
+};

@@ -11,12 +11,13 @@ interface ResultsProps {
   questions: Question[];
   onRestart: () => void;
   onRetake: () => void;
+  onRetakeWithFreshShuffles?: () => void; // Level 2: Retake with fresh option shuffles
 }
 
-const Results: React.FC<ResultsProps> = ({ result, questions, onRestart, onRetake }) => {
+const Results: React.FC<ResultsProps> = ({ result, questions, onRestart, onRetake, onRetakeWithFreshShuffles }) => {
   return (
     <div className="animate-fade-in py-8 space-y-8">
-      <ResultHeader result={result} onRetake={onRetake} onRestart={onRestart} />
+      <ResultHeader result={result} onRetake={onRetake} onRestart={onRestart} onRetakeWithFreshShuffles={onRetakeWithFreshShuffles} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <TopicStatsSection questions={questions} result={result} />

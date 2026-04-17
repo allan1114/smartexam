@@ -3,7 +3,12 @@ import { AppState, ExamConfig, Question, ExamResult, UserAnswer, DocumentSource 
 import { parseDocumentToQuestions } from './services/geminiService';
 import { generateUniqueId } from './utils/fileProcessor';
 import { logger } from './utils/logger';
-import { saveExamSession, generateDocumentHash } from './utils/examStorage';
+import {
+  saveExamSession,
+  generateDocumentHash,
+  loadSessionForRetake,
+  createRetakeSession
+} from './utils/examStorage';
 import { getDisplayQuestions } from './utils/optionShuffler';
 import Header from './components/Header';
 import Home from './components/Home';
@@ -26,6 +31,8 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<ExamResult[]>([]);
   const [isDark, setIsDark] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [currentExamSessionId, setCurrentExamSessionId] = useState<string | null>(null);
+  const [isRetaking, setIsRetaking] = useState(false);
 
   useEffect(() => {
     // Initialize Theme
@@ -85,6 +92,7 @@ const App: React.FC = () => {
     setConfig(examConfig);
     setCurrentState(AppState.LOADING);
     setError(null);
+    setIsRetaking(false);
 
     try {
       const generatedQuestions = await parseDocumentToQuestions(
@@ -103,7 +111,8 @@ const App: React.FC = () => {
       const docHash = generateDocumentHash(docSource.text, docSource.fileData);
 
       // Save original questions to localStorage (Level 1 - preserves 100% integrity)
-      saveExamSession(generatedQuestions, docHash, examConfig);
+      const sessionId = saveExamSession(generatedQuestions, docHash, examConfig);
+      setCurrentExamSessionId(sessionId);
 
       // Create option shuffles for display (Level 2 - applies shuffling at display layer)
       const { questions: displayQuestions } = getDisplayQuestions(generatedQuestions as any);
@@ -135,7 +144,9 @@ const App: React.FC = () => {
       endTime: Date.now(),
       mode: config?.mode || 'MOCK',
       model: config?.model || 'gemini-3-flash-preview',
-      customName: config?.examName
+      customName: config?.examName,
+      examSessionId: currentExamSessionId || undefined,
+      retakeOf: isRetaking ? results?.id : undefined
     };
 
     setHistory(prev => {
@@ -155,7 +166,47 @@ const App: React.FC = () => {
   const handleRetake = useCallback(() => {
     setResults(null);
     setCurrentState(AppState.EXAM);
+    setIsRetaking(false);
   }, []);
+
+  const handleRetakeWithFreshShuffles = useCallback(async (sessionId: string) => {
+    setCurrentState(AppState.LOADING);
+    setError(null);
+
+    try {
+      // Load original questions from saved session (Level 2)
+      const originalQuestions = loadSessionForRetake(sessionId);
+      if (!originalQuestions || originalQuestions.length === 0) {
+        throw new Error("SESSION_NOT_FOUND: Could not load the saved exam session for retake.");
+      }
+
+      // Create fresh option shuffles (Level 2)
+      const { questions: displayQuestions } = getDisplayQuestions(originalQuestions);
+
+      // Apply question order from config
+      const finalQuestions = config?.questionOrder === 'RANDOM'
+        ? shuffleQuestions(displayQuestions)
+        : displayQuestions;
+
+      // Create retake session (tracks relationship to original)
+      const retakeSessionId = createRetakeSession(sessionId, originalQuestions, config || undefined);
+      if (retakeSessionId) {
+        setCurrentExamSessionId(retakeSessionId);
+      }
+
+      setQuestions(finalQuestions);
+      setResults(null);
+      setIsRetaking(true);
+      setCurrentState(AppState.EXAM);
+
+      logger.info(`Retake started with fresh shuffles for session: ${sessionId}`, 'App.handleRetakeWithFreshShuffles');
+    } catch (err: any) {
+      const errMsg = err.message || "Failed to load session for retake.";
+      const type = errMsg.split(':')[0] || 'GENERAL_ERROR';
+      setError({ message: errMsg.replace(`${type}: `, ''), type });
+      setCurrentState(AppState.RESULTS);
+    }
+  }, [config]);
 
   const deleteHistory = useCallback((id: string) => {
     setHistory(prev => {
@@ -262,11 +313,12 @@ const App: React.FC = () => {
           <ExamPortal questions={questions} config={config} onFinish={finishExam} />
         )}
         {currentState === AppState.RESULTS && results && (
-          <Results 
-            result={results} 
-            questions={questions} 
-            onRestart={reset} 
+          <Results
+            result={results}
+            questions={questions}
+            onRestart={reset}
             onRetake={handleRetake}
+            onRetakeWithFreshShuffles={results.examSessionId ? () => handleRetakeWithFreshShuffles(results.examSessionId!) : undefined}
           />
         )}
       </main>
