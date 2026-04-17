@@ -3,6 +3,8 @@ import { AppState, ExamConfig, Question, ExamResult, UserAnswer, DocumentSource 
 import { parseDocumentToQuestions } from './services/geminiService';
 import { generateUniqueId } from './utils/fileProcessor';
 import { logger } from './utils/logger';
+import { saveExamSession, generateDocumentHash } from './utils/examStorage';
+import { getDisplayQuestions } from './utils/optionShuffler';
 import Header from './components/Header';
 import Home from './components/Home';
 import ExamSetup from './components/ExamSetup';
@@ -86,8 +88,8 @@ const App: React.FC = () => {
 
     try {
       const generatedQuestions = await parseDocumentToQuestions(
-        docSource, 
-        examConfig.totalQuestions, 
+        docSource,
+        examConfig.totalQuestions,
         examConfig.model,
         examConfig.answerFormat,
         examConfig.contentRange
@@ -97,9 +99,19 @@ const App: React.FC = () => {
         throw new Error("NO_QUESTIONS_FOUND: AI failed to extract any valid questions from the document.");
       }
 
-      const finalQuestions = examConfig.questionOrder === 'RANDOM' 
-        ? shuffleQuestions(generatedQuestions) 
-        : generatedQuestions;
+      // Generate document hash for integrity tracking
+      const docHash = generateDocumentHash(docSource.text, docSource.fileData);
+
+      // Save original questions to localStorage (Level 1 - preserves 100% integrity)
+      saveExamSession(generatedQuestions, docHash, examConfig);
+
+      // Create option shuffles for display (Level 2 - applies shuffling at display layer)
+      const { questions: displayQuestions } = getDisplayQuestions(generatedQuestions as any);
+
+      // Apply question order (RANDOM or SEQUENTIAL) to display questions
+      const finalQuestions = examConfig.questionOrder === 'RANDOM'
+        ? shuffleQuestions(displayQuestions)
+        : displayQuestions;
 
       setQuestions(finalQuestions);
       setCurrentState(AppState.EXAM);
