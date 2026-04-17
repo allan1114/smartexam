@@ -42,15 +42,20 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
   }, [questions, userAnswers, onFinish]);
 
   useEffect(() => {
-    if (isMock && timeLeft > 0) {
+    if (!isMock) return undefined;
+
+    if (timeLeft > 0) {
       const timer = setInterval(() => {
         setTimeLeft(prev => prev - 1);
       }, 1000);
       return () => clearInterval(timer);
-    } else if (isMock && timeLeft === 0 && !isAutoSubmitting) {
+    }
+
+    if (timeLeft === 0 && !isAutoSubmitting) {
       setIsAutoSubmitting(true);
       handleFinalSubmit();
     }
+    return undefined;
   }, [timeLeft, isMock, handleFinalSubmit, isAutoSubmitting]);
 
   const handleOptionSelect = (option: string) => {
