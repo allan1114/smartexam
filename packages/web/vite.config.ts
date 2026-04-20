@@ -7,6 +7,7 @@ export default defineConfig(({ mode, command }) => {
     const env = loadEnv(mode, '.', 'VITE_');
 
     return {
+      base: '/smartexam/',
       server: {
         port: 3000,
         // Only expose to localhost in development
