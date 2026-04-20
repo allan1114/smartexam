@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { App, logger } from '@smartexam/core';
+import App from '../../core/src/App';
+import { logger } from '../../core/src/utils/logger';
 
 const rootElement = document.getElementById('root');
 

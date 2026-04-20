@@ -13,6 +13,9 @@
   "files": [
     "src"
   ],
+  "scripts": {
+    "test": "vitest"
+  },
   "dependencies": {
     "@google/genai": "latest",
     "dompurify": "^3.4.0"

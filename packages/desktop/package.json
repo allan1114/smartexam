@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "private": true,
+  "author": "SmartExam",
   "description": "SmartExam Desktop Application (Electron)",
   "main": "dist-electron/main.js",
   "scripts": {
