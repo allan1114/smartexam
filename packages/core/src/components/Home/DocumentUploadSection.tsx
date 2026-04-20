@@ -31,6 +31,7 @@ const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
           fileData: { data: base64, mimeType: file.type }
         });
       } else {
+        // Support all text files including .md, .txt, .doc content
         const reader = new FileReader();
         reader.onload = (event) => {
           onDocLoaded({ text: event.target?.result as string });
