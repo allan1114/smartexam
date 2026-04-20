@@ -164,8 +164,11 @@ export const updatePerformanceProfile = (
     }
 
     // Recalculate aggregate metrics
+    const prevAttempts = profile.totalAttempts;
     profile.totalAttempts += 1;
-    profile.averageScore = (profile.averageScore * (profile.totalAttempts - 1) + examResult.score) / profile.totalAttempts;
+    // Normalize score as percentage (score / total questions)
+    const scorePercentage = examResult.totalQuestions > 0 ? examResult.score / examResult.totalQuestions : 0;
+    profile.averageScore = (profile.averageScore * prevAttempts + scorePercentage) / profile.totalAttempts;
     profile.lastUpdated = Date.now();
     profile.difficultyDistribution = buildDifficultyMetrics(profile.questionMetrics);
 
@@ -223,18 +226,49 @@ export const createSmartRetakeOrder = (
   // Prioritize hard, then medium, then easy
   let ordered = [...hard, ...medium, ...easy];
 
-  // If maxQuestions specified, limit and ensure mixed difficulty
+  // If maxQuestions specified, limit while maintaining difficulty distribution
   if (maxQuestions && ordered.length > maxQuestions) {
-    // Take some from each difficulty level for balanced practice
-    const hardCount = Math.ceil(maxQuestions * 0.5);
-    const mediumCount = Math.ceil(maxQuestions * 0.3);
-    const easyCount = maxQuestions - hardCount - mediumCount;
+    // Target distribution: hard > medium > easy
+    const hardTarget = Math.ceil(maxQuestions * 0.5);
+    const mediumTarget = Math.ceil(maxQuestions * 0.3);
+    const easyTarget = maxQuestions - hardTarget - mediumTarget;
 
-    ordered = [
-      ...hard.slice(0, hardCount),
-      ...medium.slice(0, mediumCount),
-      ...easy.slice(0, easyCount)
-    ];
+    const selected: Question[] = [];
+    let hardCount = 0, mediumCount = 0, easyCount = 0;
+
+    // First pass: take desired amounts from each difficulty
+    for (const q of hard.slice(0, hardTarget)) {
+      selected.push(q);
+      hardCount++;
+    }
+    for (const q of medium.slice(0, mediumTarget)) {
+      selected.push(q);
+      mediumCount++;
+    }
+    for (const q of easy.slice(0, easyTarget)) {
+      selected.push(q);
+      easyCount++;
+    }
+
+    // Second pass: if we don't have enough, fill remaining slots
+    if (selected.length < maxQuestions) {
+      const remaining = maxQuestions - selected.length;
+      // Fill from whichever pool has items left, prioritizing hard > medium > easy
+      for (const q of hard.slice(hardCount)) {
+        if (selected.length >= maxQuestions) break;
+        selected.push(q);
+      }
+      for (const q of medium.slice(mediumCount)) {
+        if (selected.length >= maxQuestions) break;
+        selected.push(q);
+      }
+      for (const q of easy.slice(easyCount)) {
+        if (selected.length >= maxQuestions) break;
+        selected.push(q);
+      }
+    }
+
+    ordered = selected;
   }
 
   return ordered;

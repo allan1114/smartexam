@@ -65,10 +65,12 @@ const createMockExamResult = (
 };
 
 describe('difficultyTracking - Level 3', () => {
-  const docHash = 'test_doc_hash';
+  let docHash: string;
 
   beforeEach(() => {
     clearAllPerformanceProfiles();
+    // Use unique hash per test to avoid profile sharing
+    docHash = `test_doc_hash_${Date.now()}_${Math.random()}`;
   });
 
   afterEach(() => {
