@@ -110,28 +110,31 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, isDark }) => {
                 </div>
 
                 <div className={`p-4 rounded-lg ${isDark ? 'bg-slate-700' : 'bg-slate-100'}`}>
-                  <h4 className={`font-semibold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>Step 2: Add API Key to SmartExam</h4>
-                  <ol className="list-decimal list-inside space-y-2 ml-2">
-                    <li>Click the ⚙️ Settings icon in the top right</li>
-                    <li>Find the "Gemini API Key" field</li>
-                    <li>Paste your API key</li>
-                    <li>Click "Save" to store it securely</li>
-                  </ol>
+                  <h4 className={`font-semibold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>Step 2: Configure API Access</h4>
+                  <p className="text-sm mb-3 font-semibold">Choose one method:</p>
+                  <div className="space-y-3 text-sm ml-2">
+                    <div>
+                      <p className="font-semibold text-indigo-600 dark:text-indigo-400">✓ Option A - Backend Proxy (Recommended):</p>
+                      <ul className="ml-4 mt-1 space-y-1">
+                        <li>• Set <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>GEMINI_API_KEY</code> on your backend server</li>
+                        <li>• Enable "Use API Proxy" in Settings (⚙️ icon)</li>
+                        <li>• Your API key stays hidden from the browser</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-semibold">Option B - Direct (Development Only):</p>
+                      <ul className="ml-4 mt-1 space-y-1">
+                        <li>• Store API key in browser localStorage</li>
+                        <li>• Only use for development/testing</li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
 
                 <div className={`mt-4 p-4 rounded-lg ${isDark ? 'bg-amber-900/30 border border-amber-700' : 'bg-amber-50 border border-amber-200'}`}>
                   <p className={`text-sm ${isDark ? 'text-amber-200' : 'text-amber-800'}`}>
-                    <strong>⚠️ Security Note:</strong> Your API key is stored securely and only used for communication with Google's servers. Never share your API key with anyone.
+                    <strong>⚠️ Production Security:</strong> Always use the proxy method for production. Never expose your API key in the browser.
                   </p>
-                </div>
-              </section>
-
-              <section>
-                <h3 className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>🌐 Backend API Configuration</h3>
-                <p className="mb-3">For deployment (Vercel, self-hosted, etc.)</p>
-                <p className="mb-3">Set environment variable:</p>
-                <div className={`p-3 rounded font-mono text-sm ${isDark ? 'bg-slate-700' : 'bg-slate-100'}`}>
-                  GEMINI_API_KEY=your_api_key_here
                 </div>
               </section>
             </div>
