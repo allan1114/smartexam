@@ -49,6 +49,12 @@
 - **Topic-Based Tracking**: Monitor your progress by subject area
 - **Mastery Insights**: Deep-dive explanations powered by Gemini AI
 - **Grounded Evidence**: Every answer includes source quotes from your document
+- **🎯 Level 3 - Smart Retake** (NEW!):
+  - **Difficulty Tracking**: Automatically categorizes questions as EASY/MEDIUM/HARD
+  - **Smart Question Ordering**: Prioritizes weak areas for focused practice
+  - **Topic Mastery Metrics**: Shows mastery percentage by topic
+  - **Persistent Performance**: Tracks performance across multiple retakes
+  - **Targeted Learning**: Retake focuses on hard questions first
 
 ### 🎨 User Experience
 - 🌙 **Dark Mode**: Full dark mode support
@@ -99,38 +105,36 @@ Your app will be available at [http://localhost:3000](http://localhost:3000)
 
 ## 📦 Installation
 
-### Standard Installation
+### Monorepo Structure
+
+SmartExam is now a **monorepo** supporting both **Web** and **Desktop (Electron)** applications with shared core code:
+
+```
+packages/
+├── core/          # Shared code (components, types, utils, services)
+├── web/           # React Web Application (Vite)
+└── desktop/       # Electron Desktop Application
+```
+
+### Prerequisites
+
+- **Node.js** 18.0 or higher
+- **npm** 8.0 or higher
+- **Google Gemini API Key** ([Get one here](https://aistudio.google.com/app/apikey))
+
+### Installation Steps
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/allan1114/smartexam.git
 cd smartexam
 
-# Install dependencies
+# 2. Install dependencies (all workspaces)
 npm install
 
-# Start development server
-npm run dev
-```
-
-### Using Yarn
-
-```bash
-# Install dependencies with yarn
-yarn install
-
-# Start development server
-yarn dev
-```
-
-### Docker (Optional)
-
-```bash
-# Build Docker image
-docker build -t smartexam .
-
-# Run container
-docker run -p 3000:3000 -e GEMINI_API_KEY=your_key_here smartexam
+# 3. Set up environment variables
+cp .env.example .env.local
+# Edit .env.local and add your GEMINI_API_KEY
 ```
 
 ---
@@ -205,23 +209,225 @@ echo "VITE_USE_GEMINI_PROXY=true" >> .env.local
 
 ---
 
-### Available Scripts
+### Available Scripts (Root Level)
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start development server |
-| `npm run build` | Build for production |
-| `npm run preview` | Preview production build locally |
-| `npm run type-check` | Run TypeScript type checking |
-| `npm run test` | Run test suite |
-| `npm run test:ui` | Run tests with UI |
-| `npm run test:coverage` | Generate coverage report |
-| `npm run lint` | Lint code |
-| `npm run clean` | Clean build artifacts |
+| Command | Description | Port |
+|---------|-------------|------|
+| `npm run dev:web` | Start **Web App** dev server | 3000 |
+| `npm run dev:electron` | Start **Electron App** (includes dev server) | 5173 + Electron |
+| `npm run build:web` | Build Web App for production | - |
+| `npm run build:electron` | Build Electron App (includes installer) | - |
+| `npm run test` | Run all tests (core + web) | - |
+| `npm run type-check` | TypeScript type checking | - |
+| `npm run clean` | Clean all build artifacts | - |
+| `npm run install:all` | Install all workspace dependencies | - |
 
-**Quick Start Command:**
+---
+
+## 🌐 WebApp Guide
+
+### Quick Start - Web Version
+
 ```bash
-npm run dev  # Start at http://localhost:3000 (or 3001/5173 if port occupied)
+# Start development server (port 3000)
+npm run dev:web
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### Web Development
+
+```bash
+# Watch mode - automatic reload on file changes
+npm run dev:web
+
+# Type checking
+cd packages/web && npm run type-check
+
+# Run tests
+npm test
+```
+
+### Web Production Build
+
+```bash
+# Build optimized bundle
+npm run build:web
+
+# Preview production build
+cd packages/web && npm run preview
+```
+
+Output: `packages/web/dist/` (Ready to deploy to Vercel, Netlify, etc.)
+
+### Deploy Web App
+
+#### Deploy to Vercel (Recommended)
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy
+vercel
+```
+
+#### Deploy to Netlify
+
+```bash
+# Install Netlify CLI
+npm i -g netlify-cli
+
+# Deploy
+netlify deploy --prod --dir packages/web/dist
+```
+
+#### Deploy to GitHub Pages
+
+```bash
+npm run build:web
+# Push packages/web/dist to gh-pages branch
+```
+
+---
+
+## 🖥️ Electron (Desktop) Guide
+
+### Quick Start - Electron Desktop App
+
+```bash
+# Start Electron development environment
+# Runs both Vite dev server and Electron in parallel
+npm run dev:electron
+```
+
+This will:
+1. Start Vite dev server (port 5173)
+2. Launch Electron app with dev tools
+3. Enable hot reload for React changes
+
+### Electron Development
+
+```bash
+# Development with Electron dev tools
+npm run dev:electron
+
+# Type checking
+cd packages/desktop && npm run type-check
+
+# Run tests
+npm test
+```
+
+### Electron Production Build
+
+```bash
+# Build Electron app (includes macOS .dmg and Windows installer)
+npm run build:electron
+```
+
+Output:
+- **macOS**: `packages/desktop/dist/SmartExam-*.dmg`
+- **Windows**: `packages/desktop/dist/SmartExam-*.exe` (NSIS installer + portable)
+- **Linux**: `packages/desktop/dist/smartexam-*.AppImage`
+
+### Electron Configuration
+
+Electron build is configured in `packages/desktop/package.json`:
+
+```json
+{
+  "build": {
+    "appId": "com.smartexam.app",
+    "productName": "SmartExam",
+    "files": ["dist/**/*", "dist-electron/**/*"],
+    "dmg": { /* macOS DMG config */ },
+    "win": { /* Windows installer config */ },
+    "nsis": { /* NSIS config */ }
+  }
+}
+```
+
+Customize in:
+- `packages/desktop/package.json` - App metadata and icons
+- `packages/desktop/electron/main.ts` - Electron main process
+- `packages/desktop/vite.config.ts` - Build configuration
+
+### Building for Specific Platform
+
+```bash
+# macOS only
+npm run build:electron  # On macOS
+
+# Windows only
+npm run build:electron  # On Windows
+
+# Cross-platform (requires Docker)
+npm install -D electron-builder-docker
+npm run build:electron -- --linux --win --mac
+```
+
+### Distributing Electron App
+
+1. **Sign App** (recommended for macOS)
+   ```bash
+   # Add code signing certificate
+   export CSC_LINK=path/to/certificate.p12
+   export CSC_KEY_PASSWORD=password
+   npm run build:electron
+   ```
+
+2. **Host Installer**
+   - Upload `.dmg`, `.exe`, `.AppImage` to GitHub releases
+   - Use [electron-updater](https://www.electron.build/auto-update) for auto-updates
+
+3. **Create Installer**
+   - `.dmg` for macOS (configured via dmg settings)
+   - `.exe` or portable for Windows (NSIS installer)
+
+---
+
+## 📊 Architecture Comparison
+
+| Feature | Web App | Desktop (Electron) |
+|---------|---------|-------------------|
+| **Platform** | Browser | Windows, macOS, Linux |
+| **Installation** | No (URL-based) | Download & Install |
+| **Update** | Automatic | Manual or auto-updater |
+| **Storage** | localStorage | File system access |
+| **Offline** | Limited | Full offline support |
+| **Performance** | Good | Excellent |
+| **Bundle Size** | ~600KB | ~150MB (with Electron) |
+| **Dev Server** | Vite (port 3000) | Vite + Electron (port 5173) |
+
+---
+
+## 🔄 Shared Code (packages/core)
+
+Both web and desktop applications share:
+
+```
+packages/core/src/
+├── App.tsx              # Main application component
+├── components/          # UI components
+├── services/           # AI services (Gemini API)
+├── types/              # TypeScript types
+├── utils/              # Utility functions
+├── __tests__/          # Tests
+└── constants/          # App constants
+```
+
+### Running Core Tests
+
+```bash
+# Tests for all shared logic
+npm test
+
+# Specific test file
+npm test -- difficultyTracking.test.ts
+
+# Test coverage
+npm test -- --coverage
 ```
 
 ---
@@ -468,39 +674,112 @@ This app is a standard Vite application and can be deployed to any static hostin
 
 ```
 smartexam/
-├── src/
-│   ├── components/        # React components
-│   │   ├── Home.tsx      # Home page with file upload
-│   │   ├── ExamSetup.tsx # Exam configuration
-│   │   ├── ExamPortal.tsx # Main exam interface
-│   │   ├── Results.tsx   # Results and analysis
-│   │   ├── ChatBot.tsx   # AI tutor chat
-│   │   ├── Header.tsx    # App header
-│   │   └── LoadingScreen.tsx
-│   ├── services/
-│   │   └── geminiService.ts  # AI service integration
-│   ├── types.ts          # TypeScript type definitions
-│   ├── App.tsx           # Main app component
-│   └── index.tsx         # Entry point
-├── public/               # Static assets
-├── .env.example          # Environment variables template
-├── vercel.json           # Vercel configuration
-├── vite.config.ts        # Vite configuration
-├── tsconfig.json         # TypeScript configuration
-├── package.json          # Project dependencies
-├── DEPLOYMENT.md         # Detailed deployment guide
-├── IMPROVEMENTS.md       # Project improvements
-└── README.md             # This file
+├── packages/
+│   ├── core/                    # Shared library (all apps use this)
+│   │   ├── src/
+│   │   │   ├── App.tsx         # Main application component
+│   │   │   ├── index.ts        # Library exports
+│   │   │   ├── index.tsx       # React entry point
+│   │   │   ├── components/     # UI components
+│   │   │   │   ├── Home.tsx
+│   │   │   │   ├── ExamSetup.tsx
+│   │   │   │   ├── ExamPortal.tsx
+│   │   │   │   ├── Results.tsx
+│   │   │   │   ├── ChatBot.tsx
+│   │   │   │   ├── Header.tsx
+│   │   │   │   └── ...more
+│   │   │   ├── services/       # API services
+│   │   │   │   ├── geminiService.ts
+│   │   │   │   └── geminiProxyClient.ts
+│   │   │   ├── types/          # TypeScript definitions
+│   │   │   │   └── index.ts
+│   │   │   ├── utils/          # Utilities
+│   │   │   │   ├── difficultyTracking.ts  # Level 3 Smart Retake
+│   │   │   │   ├── examStorage.ts
+│   │   │   │   ├── optionShuffler.ts
+│   │   │   │   └── ...more
+│   │   │   └── __tests__/      # Test files
+│   │   └── package.json
+│   │
+│   ├── web/                     # Web Application (Vite)
+│   │   ├── src/
+│   │   │   └── index.tsx       # Web entry point
+│   │   ├── index.html          # HTML template
+│   │   ├── vite.config.ts      # Vite configuration
+│   │   ├── tsconfig.json       # TypeScript config
+│   │   ├── package.json        # Web dependencies
+│   │   ├── dist/               # Production build output
+│   │   └── node_modules/
+│   │
+│   └── desktop/                 # Electron Desktop App
+│       ├── src/
+│       │   └── index.tsx       # Electron entry point
+│       ├── electron/
+│       │   ├── main.ts         # Electron main process
+│       │   └── preload.ts      # IPC bridge
+│       ├── index.html          # HTML template
+│       ├── vite.config.ts      # Vite + Electron config
+│       ├── tsconfig.json       # TypeScript config
+│       ├── package.json        # Electron dependencies
+│       ├── dist/               # React bundle output
+│       ├── dist-electron/      # Electron main process output
+│       └── node_modules/
+│
+├── .env.example                # Environment variables template
+├── package.json                # Root package (workspaces config)
+├── tsconfig.json               # Base TypeScript config
+├── README.md                   # This file
+├── DEPLOYMENT.md               # Deployment guide
+└── IMPROVEMENTS.md             # Project improvements
+```
+
+### Workspace Dependencies
+
+All packages share dependencies through npm workspaces:
+
+```bash
+# Install all packages
+npm install
+
+# Install in specific package
+npm install --workspace=@smartexam/core
+
+# Add new dependency to core
+npm install lodash --workspace=@smartexam/core
+
+# Add dev dependency to web
+npm install -D @types/node --workspace=@smartexam/web
 ```
 
 ### Tech Stack
 
+**Frontend:**
 - **Framework**: React 19.2.3 with TypeScript
 - **Build Tool**: Vite 6.2.0
-- **AI Provider**: Google Gemini API (@google/genai)
 - **Styling**: Tailwind CSS (via CDN)
 - **State Management**: React Hooks
-- **Deployment**: Vercel
+- **Testing**: Vitest + React Testing Library
+
+**Desktop:**
+- **Runtime**: Electron 30.0.0
+- **Build**: electron-builder 25.0.0
+- **Process Management**: vite-plugin-electron
+- **IPC**: Electron Context Isolation + Preload
+
+**AI/Backend:**
+- **AI Provider**: Google Gemini API (@google/genai)
+- **API Client**: @google/genai library
+- **Proxy**: Optional backend proxy for secure API key handling
+
+**Architecture:**
+- **Monorepo**: npm workspaces
+- **Shared Code**: packages/core (types, utils, services)
+- **Web**: packages/web (Vite SSR-ready)
+- **Desktop**: packages/desktop (Electron cross-platform)
+
+**Deployment:**
+- **Web**: Vercel, Netlify, GitHub Pages
+- **Desktop**: GitHub Releases, auto-updater ready
 
 ### API Integration
 
