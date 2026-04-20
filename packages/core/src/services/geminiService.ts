@@ -1,22 +1,30 @@
 
-import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import { Type, GenerateContentResponse } from "@google/genai";
 import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis } from "../types";
 import { cleanJsonResponse, shuffleArray } from "../utils/fileProcessor";
 import { ApiError, isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
 
 /**
- * Get API key from localStorage first, then fallback to environment variable
+ * Call Gemini API through backend proxy (API key is protected on server)
  */
-const getApiKey = (): string => {
-  const savedKey = localStorage.getItem('smart_exam_api_key');
-  if (savedKey) return savedKey;
+const callGeminiViaProxy = async (
+  model: string,
+  contents: any,
+  config?: any
+): Promise<any> => {
+  const response = await fetch('/api/proxy-gemini', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, contents, config })
+  });
 
-  const envKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!envKey) {
-    throw new Error('API_KEY_NOT_FOUND: No Gemini API key found. Please configure it in Settings.');
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.message || `API Error: ${response.statusText}`);
   }
-  return envKey;
+
+  return response.json();
 };
 
 /**
@@ -62,27 +70,25 @@ export const parseDocumentToQuestions = async (
   answerFormat: AnswerFormat = 'AUTO',
   contentRange?: string
 ): Promise<Question[]> => {
-  const apiKey = getApiKey();
   const finalModelName = getModelName(modelName);
-  const ai = new GoogleGenAI({ apiKey });
-  
+
   const rangeText = contentRange ? ` ONLY focus on the following section: "${contentRange}".` : ' Scan the ENTIRE document length to ensure a balanced sampling of questions.';
-  
+
   const MAX_TEXT_LENGTH = 100000;
   const textContext = source.text ? (source.text.length > MAX_TEXT_LENGTH ? source.text.substring(0, MAX_TEXT_LENGTH) + "... [Truncated]" : source.text) : "";
   const randomSeed = Math.floor(Math.random() * 1000000);
 
   const apiCall = async () => {
-    return await ai.models.generateContent({
-      model: finalModelName,
-      contents: {
+    return await callGeminiViaProxy(
+      finalModelName,
+      {
         parts: [
           { text: source.text ? `DOCUMENT CONTENT:\n${textContext}` : "Analyze the attached file and extract questions from its content." },
           ...(source.fileData ? [{ inlineData: source.fileData }] : [])
         ]
       },
-      config: {
-        systemInstruction: `You are a professional exam creator. 
+      {
+        systemInstruction: `You are a professional exam creator.
         TASK: Extract exactly ${count} high-quality questions from the provided document.${rangeText}
 
         STRICT RANDOMIZATION RULES:
@@ -95,7 +101,7 @@ export const parseDocumentToQuestions = async (
 
         OUTPUT SCHEMA: Return a JSON object with a key 'questions' containing the list of questions.`,
         responseMimeType: "application/json",
-        temperature: 0.85, // Higher temperature for significantly more variety in question selection
+        temperature: 0.85,
         seed: randomSeed,
         responseSchema: {
           type: Type.OBJECT,
@@ -119,8 +125,8 @@ export const parseDocumentToQuestions = async (
           },
           required: ["questions"]
         },
-      },
-    });
+      }
+    );
   };
 
   try {
@@ -191,17 +197,15 @@ export const refineMasteryInsight = async (
   correctAnswer: string,
   modelName: string = 'gemini-3-flash-preview'
 ): Promise<string> => {
-  const apiKey = getApiKey();
   const finalModelName = getModelName(modelName);
-  const ai = new GoogleGenAI({ apiKey });
   const prompt = `Provide a detailed "Mastery Insight" for this exam question: "${question}". Correct answer: "${correctAnswer}". Explain the underlying concept deeply and why other options might be confusing.`;
 
   const apiCall = async () => {
-    return await ai.models.generateContent({
-      model: finalModelName,
-      contents: { parts: [{ text: prompt }] },
-      config: { temperature: 0.5 }
-    });
+    return await callGeminiViaProxy(
+      finalModelName,
+      { parts: [{ text: prompt }] },
+      { temperature: 0.5 }
+    );
   };
 
   try {
@@ -222,18 +226,24 @@ export const getChatbotResponse = async (
   message: string,
   context: string
 ): Promise<string> => {
-  const apiKey = getApiKey();
   const modelName = getModelName('gemini-3-flash-preview');
-  const ai = new GoogleGenAI({ apiKey });
+  const contents = [
+    ...history.map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }]
+    })),
+    { role: 'user', parts: [{ text: message }] }
+  ];
+
   const apiCall = async () => {
-    const chat = ai.chats.create({
-      model: modelName,
-      config: {
+    return await callGeminiViaProxy(
+      modelName,
+      { parts: contents },
+      {
         temperature: 0.7,
         systemInstruction: `You are an expert tutor. Helping a student with the following material: ${context.substring(0, 30000)}`,
-      },
-    });
-    return await chat.sendMessage({ message });
+      }
+    );
   };
 
   try {
@@ -248,19 +258,19 @@ export const generatePerformanceAnalysis = async (
   questions: Question[],
   answers: UserAnswer[]
 ): Promise<PerformanceAnalysis> => {
-  const apiKey = getApiKey();
   const modelName = getModelName('gemini-3-flash-preview');
-  const ai = new GoogleGenAI({ apiKey });
-  const summary = questions.map(q => ({ 
-    topic: q.topic, 
-    correct: answers.find(a => a.questionId === q.id)?.isCorrect 
+  const summary = questions.map(q => ({
+    topic: q.topic,
+    correct: answers.find(a => a.questionId === q.id)?.isCorrect
   }));
-  
+
   const apiCall = async () => {
-    return await ai.models.generateContent({
-      model: modelName,
-      contents: { parts: [{ text: `Analyze this exam performance data and provide constructive feedback in a encouraging tone: ${JSON.stringify(summary)}` }] },
-      config: {
+    return await callGeminiViaProxy(
+      modelName,
+      {
+        parts: [{ text: `Analyze this exam performance data and provide constructive feedback in a encouraging tone: ${JSON.stringify(summary)}` }]
+      },
+      {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -272,8 +282,9 @@ export const generatePerformanceAnalysis = async (
           },
           required: ["overallFeedback", "strengths", "areasForImprovement", "commonMistakes"],
         },
-      },
-    });
+        temperature: 0.7,
+      }
+    );
   };
 
   try {
@@ -282,11 +293,11 @@ export const generatePerformanceAnalysis = async (
     if (!text) throw new Error("No analysis received");
     return JSON.parse(cleanJsonResponse(text)) as PerformanceAnalysis;
   } catch (error) {
-    return { 
-      overallFeedback: "You've successfully completed the session. Review your errors below to improve!", 
-      strengths: ["Session completion"], 
-      areasForImprovement: ["Topic specific review"], 
-      commonMistakes: ["Insufficient data for detailed analysis"] 
+    return {
+      overallFeedback: "You've successfully completed the session. Review your errors below to improve!",
+      strengths: ["Session completion"],
+      areasForImprovement: ["Topic specific review"],
+      commonMistakes: ["Insufficient data for detailed analysis"]
     };
   }
 };
