@@ -18,7 +18,9 @@
     "type-check": "cd packages/web && npm run type-check && cd ../desktop && npm run type-check",
     "lint": "cd packages/web && npm run lint",
     "clean": "rm -rf packages/*/dist packages/*/dist-electron node_modules/.vite",
-    "install:all": "npm install && npm install --workspace packages/core --workspace packages/web --workspace packages/desktop"
+    "install:all": "npm install && npm install --workspace packages/core --workspace packages/web --workspace packages/desktop",
+    "deploy:pages": "npm run build:web && git add packages/web/dist -f && git commit -m 'Deploy to GitHub Pages' || true && git subtree push --prefix packages/web/dist origin gh-pages",
+    "deploy:pages:script": "bash scripts/deploy-github-pages.sh"
   }
 }
 
