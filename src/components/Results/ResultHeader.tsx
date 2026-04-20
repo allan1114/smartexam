@@ -6,9 +6,10 @@ interface ResultHeaderProps {
   onRetake: () => void;
   onRestart: () => void;
   onRetakeWithFreshShuffles?: () => void; // Level 2
+  onSmartRetake?: () => void; // Level 3
 }
 
-const ResultHeader: React.FC<ResultHeaderProps> = ({ result, onRetake, onRestart, onRetakeWithFreshShuffles }) => {
+const ResultHeader: React.FC<ResultHeaderProps> = ({ result, onRetake, onRestart, onRetakeWithFreshShuffles, onSmartRetake }) => {
   const percentage = Math.round((result.score / result.totalQuestions) * 100);
 
   const status = useMemo(() => {
@@ -30,7 +31,12 @@ const ResultHeader: React.FC<ResultHeaderProps> = ({ result, onRetake, onRestart
 
         <div className="md:w-2/3 p-12 bg-white dark:bg-slate-800 flex flex-col justify-between">
           <h3 className="text-3xl font-black mb-2 text-slate-900 dark:text-white tracking-tight">Analysis Complete</h3>
-          <div className={`grid gap-4 mt-8 ${onRetakeWithFreshShuffles ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}>
+          <div className={`grid gap-4 mt-8 ${onSmartRetake ? 'grid-cols-1 sm:grid-cols-4' : onRetakeWithFreshShuffles ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}>
+            {onSmartRetake && (
+              <button onClick={onSmartRetake} className="bg-purple-600 text-white p-5 rounded-2xl font-black hover:bg-purple-700 shadow-lg text-sm">
+                SMART RETAKE<br />(FOCUS WEAK)
+              </button>
+            )}
             {onRetakeWithFreshShuffles && (
               <button onClick={onRetakeWithFreshShuffles} className="bg-blue-600 text-white p-5 rounded-2xl font-black hover:bg-blue-700 shadow-lg text-sm">
                 RETAKE<br />(FRESH SHUFFLES)

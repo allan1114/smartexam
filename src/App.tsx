@@ -9,6 +9,11 @@ import {
   loadSessionForRetake,
   createRetakeSession
 } from './utils/examStorage';
+import {
+  updatePerformanceProfile,
+  loadPerformanceProfile,
+  createSmartRetakeOrder
+} from './utils/difficultyTracking';
 import { getDisplayQuestions } from './utils/optionShuffler';
 import Header from './components/Header';
 import Home from './components/Home';
@@ -33,6 +38,7 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [currentExamSessionId, setCurrentExamSessionId] = useState<string | null>(null);
   const [isRetaking, setIsRetaking] = useState(false);
+  const [documentHash, setDocumentHash] = useState<string | null>(null);
 
   useEffect(() => {
     // Initialize Theme
@@ -109,6 +115,7 @@ const App: React.FC = () => {
 
       // Generate document hash for integrity tracking
       const docHash = generateDocumentHash(docSource.text, docSource.fileData);
+      setDocumentHash(docHash);
 
       // Save original questions to localStorage (Level 1 - preserves 100% integrity)
       const sessionId = saveExamSession(generatedQuestions, docHash, examConfig);
@@ -159,6 +166,16 @@ const App: React.FC = () => {
       return updated;
     });
 
+    // Update difficulty profile (Level 3)
+    if (documentHash) {
+      try {
+        updatePerformanceProfile(documentHash, examResult);
+        logger.info('Performance profile updated', 'App.finishExam');
+      } catch (e) {
+        logger.warn('Failed to update performance profile', 'App.finishExam', e);
+      }
+    }
+
     setResults(examResult);
     setCurrentState(AppState.RESULTS);
   };
@@ -207,6 +224,57 @@ const App: React.FC = () => {
       setCurrentState(AppState.RESULTS);
     }
   }, [config]);
+
+  const handleSmartRetake = useCallback(async (sessionId: string) => {
+    setCurrentState(AppState.LOADING);
+    setError(null);
+
+    try {
+      if (!documentHash) {
+        throw new Error("SESSION_NOT_FOUND: Document hash not available for smart retake.");
+      }
+
+      // Load original questions from saved session
+      const originalQuestions = loadSessionForRetake(sessionId);
+      if (!originalQuestions || originalQuestions.length === 0) {
+        throw new Error("SESSION_NOT_FOUND: Could not load the saved exam session for retake.");
+      }
+
+      // Load performance profile (Level 3)
+      const profile = loadPerformanceProfile(documentHash);
+      if (!profile) {
+        throw new Error("PROFILE_NOT_FOUND: No performance data available for smart retake.");
+      }
+
+      // Create smart retake order - prioritize hard questions (Level 3)
+      const smartOrderedQuestions = createSmartRetakeOrder(
+        profile,
+        originalQuestions,
+        config?.totalQuestions
+      );
+
+      // Create fresh option shuffles
+      const { questions: displayQuestions } = getDisplayQuestions(smartOrderedQuestions);
+
+      // Create retake session
+      const retakeSessionId = createRetakeSession(sessionId, smartOrderedQuestions, config || undefined);
+      if (retakeSessionId) {
+        setCurrentExamSessionId(retakeSessionId);
+      }
+
+      setQuestions(displayQuestions);
+      setResults(null);
+      setIsRetaking(true);
+      setCurrentState(AppState.EXAM);
+
+      logger.info(`Smart retake started (prioritizing difficult questions) for session: ${sessionId}`, 'App.handleSmartRetake');
+    } catch (err: any) {
+      const errMsg = err.message || "Failed to start smart retake.";
+      const type = errMsg.split(':')[0] || 'GENERAL_ERROR';
+      setError({ message: errMsg.replace(`${type}: `, ''), type });
+      setCurrentState(AppState.RESULTS);
+    }
+  }, [documentHash, config]);
 
   const deleteHistory = useCallback((id: string) => {
     setHistory(prev => {
@@ -319,6 +387,7 @@ const App: React.FC = () => {
             onRestart={reset}
             onRetake={handleRetake}
             onRetakeWithFreshShuffles={results.examSessionId ? () => handleRetakeWithFreshShuffles(results.examSessionId!) : undefined}
+            onSmartRetake={results.examSessionId ? () => handleSmartRetake(results.examSessionId!) : undefined}
           />
         )}
       </main>

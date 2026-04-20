@@ -92,3 +92,39 @@ export interface ExamSession {
   examConfig?: ExamConfig; // Optional: for context
   retakeOf?: string; // Session ID this is a retake of (for Level 2)
 }
+
+// Level 3: Difficulty Tracking
+export type DifficultyLevel = 'EASY' | 'MEDIUM' | 'HARD';
+
+export interface QuestionPerformance {
+  questionId: number;
+  topic?: string;
+  // Tracks correct/incorrect attempts across all exams
+  correctCount: number;
+  totalAttempts: number;
+  // Calculated difficulty based on success rate
+  difficulty: DifficultyLevel;
+  // Last attempt date for freshness
+  lastAttemptDate: number;
+  // Attempts where question was skipped
+  skippedCount: number;
+}
+
+export interface DifficultyMetrics {
+  // Aggregated performance by difficulty level
+  easyQuestions: QuestionPerformance[]; // >= 75% correct
+  mediumQuestions: QuestionPerformance[]; // 50-74% correct
+  hardQuestions: QuestionPerformance[]; // < 50% correct
+}
+
+export interface UserPerformanceProfile {
+  documentHash: string;
+  // Performance by question ID
+  questionMetrics: Map<number, QuestionPerformance>;
+  // Overall metrics
+  totalAttempts: number;
+  averageScore: number;
+  lastUpdated: number;
+  // Difficulty distribution
+  difficultyDistribution: DifficultyMetrics;
+}
