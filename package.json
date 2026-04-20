@@ -3,39 +3,22 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/web",
+    "packages/desktop"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "type-check": "tsc --noEmit",
-    "test": "vitest",
-    "test:ui": "vitest --ui",
-    "test:coverage": "vitest --coverage",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "clean": "rm -rf dist node_modules/.vite",
-    "screenshot": "node scripts/capture-screenshots.js"
-  },
-  "dependencies": {
-    "@google/genai": "latest",
-    "@types/dompurify": "^3.0.5",
-    "dompurify": "^3.4.0",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.59.1",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^15.0.0",
-    "@testing-library/user-event": "^14.5.0",
-    "@types/node": "^22.14.0",
-    "@types/react": "^19.2.3",
-    "@types/react-dom": "^19.2.3",
-    "@vercel/node": "^3.0.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "@vitest/ui": "^2.1.0",
-    "jsdom": "^24.1.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0",
-    "vitest": "^2.1.0"
+    "dev:web": "cd packages/web && npm run dev",
+    "dev:electron": "cd packages/desktop && npm run electron-dev",
+    "build:web": "cd packages/web && npm run build",
+    "build:electron": "cd packages/desktop && npm run build",
+    "test": "cd packages/core && npm run test && cd ../web && npm run test",
+    "test:ui": "cd packages/web && npm run test:ui",
+    "type-check": "cd packages/web && npm run type-check && cd ../desktop && npm run type-check",
+    "lint": "cd packages/web && npm run lint",
+    "clean": "rm -rf packages/*/dist packages/*/dist-electron node_modules/.vite",
+    "install:all": "npm install && npm install --workspace packages/core --workspace packages/web --workspace packages/desktop"
   }
 }
+
