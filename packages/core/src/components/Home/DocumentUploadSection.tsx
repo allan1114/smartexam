@@ -96,11 +96,11 @@ const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
           <div className="text-center">
             <input
               type="file"
-              accept=".txt,.pdf,.doc,.docx,.jpg,.png"
+              accept=".txt,.pdf,.doc,.docx,.jpg,.png,.md"
               onChange={handleFileUpload}
               className="block w-full text-sm text-slate-500 file:mr-4 file:py-4 file:px-8 file:rounded-2xl file:border-0 file:text-sm file:font-black file:bg-slate-900 file:text-white border-2 border-dashed border-slate-200 dark:border-slate-700 p-8 rounded-3xl"
             />
-            <p className="mt-4 text-xs text-slate-400 font-medium">Supports PDF, Text, and Images of exam papers.</p>
+            <p className="mt-4 text-xs text-slate-400 font-medium">Supports PDF, Text, Markdown, and Images of exam papers.</p>
           </div>
         )}
 
