@@ -24,6 +24,7 @@ import Results from './components/Results';
 import ChatBot from './components/ChatBot';
 import ErrorBoundary from './components/ErrorBoundary';
 import Settings from './components/Settings';
+import HelpModal from './components/HelpModal';
 
 
 const App: React.FC = () => {
@@ -36,6 +37,7 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<ExamResult[]>([]);
   const [isDark, setIsDark] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [currentExamSessionId, setCurrentExamSessionId] = useState<string | null>(null);
   const [isRetaking, setIsRetaking] = useState(false);
   const [documentHash, setDocumentHash] = useState<string | null>(null);
@@ -358,8 +360,9 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300">
-        <Header onLogoClick={reset} isDark={isDark} toggleTheme={toggleTheme} onSettingsClick={() => setShowSettings(true)} />
+        <Header onLogoClick={reset} isDark={isDark} toggleTheme={toggleTheme} onSettingsClick={() => setShowSettings(true)} onHelpClick={() => setShowHelp(true)} />
         <Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
+        <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} isDark={isDark} />
 
         <main className="flex-grow container mx-auto px-4 py-8 max-w-5xl">
         {renderError()}
