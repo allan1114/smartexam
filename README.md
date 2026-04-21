@@ -7,6 +7,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.8.2-3178C6?logo=typescript)
 ![Vite](https://img.shields.io/badge/Vite-6.2.0-646CFF?logo=vite)
 ![Gemini AI](https://img.shields.io/badge/Gemini%20AI-Latest-8E75FF?logo=google)
+![Status](https://img.shields.io/badge/Status-Production%20Ready-green.svg)
 
 **AI-Powered Exam Practice & Learning Platform**
 
