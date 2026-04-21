@@ -123,15 +123,20 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, isDark }) => {
                     <div>
                       <p className={`font-semibold mb-2 ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>Custom backend / self-hosted:</p>
                       <ol className="ml-3 space-y-2 list-decimal list-inside">
-                        <li>In your project root, create a file named <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.env</code></li>
                         <li>
-                          Add this line inside it:
+                          Open a terminal in your project folder and run:
                           <div className={`mt-1 ml-4 px-3 py-2 rounded font-mono text-xs ${isDark ? 'bg-slate-900' : 'bg-slate-200'}`}>
-                            GEMINI_API_KEY=your_api_key_here
+                            echo "GEMINI_API_KEY=your_api_key_here" &gt; .env
                           </div>
+                          <p className={`mt-1 ml-4 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>This creates the <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.env</code> file in one step.</p>
                         </li>
                         <li>Replace <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>your_api_key_here</code> with the key you copied in Step 1</li>
-                        <li>Add <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.env</code> to your <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.gitignore</code> — never commit it to git</li>
+                        <li>
+                          Make sure <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.env</code> is in your <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.gitignore</code>:
+                          <div className={`mt-1 ml-4 px-3 py-2 rounded font-mono text-xs ${isDark ? 'bg-slate-900' : 'bg-slate-200'}`}>
+                            echo ".env" &gt;&gt; .gitignore
+                          </div>
+                        </li>
                         <li>Start your backend server — it will load the key automatically</li>
                         <li>In SmartExam: click ⚙️ Settings → enable "Use API Proxy" → enter your backend URL</li>
                       </ol>
