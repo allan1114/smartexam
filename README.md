@@ -1,4 +1,4 @@
-# SmartExam AI - Your Personal Tutor
+# SmartExam AI - 您的個人教師
 
 <div align="center">
 
@@ -9,328 +9,328 @@
 ![Gemini AI](https://img.shields.io/badge/Gemini%20AI-Latest-8E75FF?logo=google)
 ![Status](https://img.shields.io/badge/Status-Production%20Ready-green.svg)
 
-**AI-Powered Exam Practice & Learning Platform**
+**AI 驅動的考試練習與學習平台**
 
-[Live Demo](https://allan1114.github.io/smartexam/) • [Report Bug](../../issues) • [Request Feature](../../issues)
+[線上演示](https://allan1114.github.io/smartexam/) • [報告錯誤](../../issues) • [請求功能](../../issues) • [英文版本](README.en.md)
 
 </div>
 
 ---
 
-## 📚 Table of Contents
+## 📚 目錄
 
-- [🌟 Features](#-features)
-- [🚀 Quick Start](#-quick-start)
-- [📦 Installation](#-installation)
-- [⚙️ Configuration](#️-configuration)
-- [🎯 Usage](#-usage)
-- [🏗️ Deployment](#️-deployment)
-- [📖 Documentation](#-documentation)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
-
----
-
-## 🌟 Features
-
-### 🎓 Smart Exam Generation
-- **AI-Powered Question Extraction**: Automatically generate practice questions from any document
-- **Multiple Input Sources**: Upload files (PDF, TXT, images), import Google Docs, or paste text directly
-- **Customizable Exam Modes**:
-  - 📝 **Mock Mode**: Timed exam simulation with automatic submission
-  - 🎯 **Practice Mode**: Instant feedback after each question
-  - 📚 **Study Guide Mode**: Focus on learning with detailed explanations
-
-### 🧠 Advanced AI Features
-- **Real-time Analysis**: Get instant AI feedback on your performance
-- **Topic-Based Tracking**: Monitor your progress by subject area
-- **Mastery Insights**: Deep-dive explanations powered by Gemini AI
-- **Grounded Evidence**: Every answer includes source quotes from your document
-- **🎯 Level 3 - Smart Retake** (NEW!):
-  - **Difficulty Tracking**: Automatically categorizes questions as EASY/MEDIUM/HARD
-  - **Smart Question Ordering**: Prioritizes weak areas for focused practice
-  - **Topic Mastery Metrics**: Shows mastery percentage by topic
-  - **Persistent Performance**: Tracks performance across multiple retakes
-  - **Targeted Learning**: Retake focuses on hard questions first
-
-### 🎨 User Experience
-- 🌙 **Dark Mode**: Full dark mode support
-- 📱 **Responsive Design**: Works perfectly on desktop, tablet, and mobile
-- 📊 **Progress Tracking**: Visual progress bars and history management
-- 🏆 **Performance Analytics**: Detailed statistics and improvement recommendations
-- 💾 **Local Storage**: Your exam history is saved automatically
-
-### 🔧 Customization Options
-- **Flexible Question Formats**: MCQ (4/5 options), True/False, or Auto-detect
-- **Adjustable Settings**:
-  - Question count (1-100)
-  - Exam duration (30-240 minutes)
-  - Question order (Sequential/Random)
-  - Content range focus (specific pages or chapters)
+- [🌟 功能特點](#-功能特點)
+- [🚀 快速開始](#-快速開始)
+- [📦 安裝](#-安裝)
+- [⚙️ 配置](#️-配置)
+- [🎯 使用](#-使用)
+- [🏗️ 部署](#️-部署)
+- [📖 文檔](#-文檔)
+- [🤝 貢獻](#-貢獻)
+- [📄 授權](#-授權)
 
 ---
 
-## 🚀 Quick Start
+## 🌟 功能特點
 
-### Prerequisites
+### 🎓 智能考試生成
+- **AI 驅動的問題提取**：自動從任何文檔生成練習題目
+- **多個輸入源**：上傳文件（PDF、TXT、圖像）、導入 Google Docs 或直接粘貼文本
+- **可定制的考試模式**：
+  - 📝 **模擬模式**：帶有自動提交的計時考試模擬
+  - 🎯 **練習模式**：每個問題後即時反饋
+  - 📚 **學習指南模式**：專注於詳細解釋的學習
 
-- **Node.js** 18.0 or higher
-- **npm** or **yarn**
-- **Google Gemini API Key** ([Get one here](https://aistudio.google.com/app/apikey))
+### 🧠 高級 AI 功能
+- **實時分析**：獲得對您表現的即時 AI 反饋
+- **基於主題的追蹤**：按科目監控您的進度
+- **掌握洞察**：由 Gemini AI 提供的深度解釋
+- **有根據的證據**：每個答案都包含文檔中的源引用
+- **🎯 第 3 級 - 智能重考**（新功能！）：
+  - **難度追蹤**：自動將問題分類為簡單/中等/困難
+  - **智能問題排序**：優先考慮薄弱環節以進行集中練習
+  - **主題掌握度量**：顯示按主題的掌握百分比
+  - **持久性能追蹤**：跟踪多次重考的性能
+  - **目標學習**：重考首先關注困難問題
 
-### 3 Steps to Get Started
+### 🎨 用戶體驗
+- 🌙 **深色模式**：完整的深色模式支持
+- 📱 **響應式設計**：在桌面、平板和手機上完美運行
+- 📊 **進度追蹤**：可視化進度條和歷史記錄管理
+- 🏆 **性能分析**：詳細的統計數據和改進建議
+- 💾 **本地存儲**：您的考試歷史自動保存
+
+### 🔧 自定義選項
+- **靈活的問題格式**：多項選擇（4/5 選項）、是/否或自動檢測
+- **可調整的設置**：
+  - 問題數量（1-100）
+  - 考試時長（30-240 分鐘）
+  - 問題順序（順序/隨機）
+  - 內容範圍焦點（特定頁面或章節）
+
+---
+
+## 🚀 快速開始
+
+### 前置要求
+
+- **Node.js** 18.0 或更高版本
+- **npm** 或 **yarn**
+- **Google Gemini API 金鑰** ([在這裡取得](https://aistudio.google.com/app/apikey))
+
+### 3 個步驟開始使用
 
 ```bash
-# 1. Clone the repository
+# 1. 克隆存儲庫
 git clone https://github.com/allan1114/smartexam.git
 cd smartexam
 
-# 2. Install dependencies
+# 2. 安裝依賴項
 npm install
 
-# 3. Set up environment variables
+# 3. 設置環境變數
 cp .env.example .env.local
-# Edit .env.local and add your GEMINI_API_KEY
+# 編輯 .env.local 並添加您的 GEMINI_API_KEY
 
-# 4. Start the development server
+# 4. 啟動開發服務器
 npm run dev
 ```
 
-Your app will be available at [http://localhost:3000](http://localhost:3000)
+您的應用將在 [http://localhost:3000](http://localhost:3000) 上提供
 
 ---
 
-## 📦 Installation
+## 📦 安裝
 
-### Monorepo Structure
+### Monorepo 結構
 
-SmartExam is now a **monorepo** supporting both **Web** and **Desktop (Electron)** applications with shared core code:
+SmartExam 現在是一個 **monorepo**，支持 **Web** 和 **桌面 (Electron)** 應用程序，具有共享的核心代碼：
 
 ```
 packages/
-├── core/          # Shared code (components, types, utils, services)
-├── web/           # React Web Application (Vite)
-└── desktop/       # Electron Desktop Application
+├── core/          # 共享代碼（組件、類型、工具、服務）
+├── web/           # React Web 應用程序（Vite）
+└── desktop/       # Electron 桌面應用程序
 ```
 
-### Prerequisites
+### 前置要求
 
-- **Node.js** 18.0 or higher
-- **npm** 8.0 or higher
-- **Google Gemini API Key** ([Get one here](https://aistudio.google.com/app/apikey))
+- **Node.js** 18.0 或更高版本
+- **npm** 8.0 或更高版本
+- **Google Gemini API 金鑰** ([在這裡取得](https://aistudio.google.com/app/apikey))
 
-### Installation Steps
+### 安裝步驟
 
 ```bash
-# 1. Clone the repository
+# 1. 克隆存儲庫
 git clone https://github.com/allan1114/smartexam.git
 cd smartexam
 
-# 2. Install dependencies (all workspaces)
+# 2. 安裝依賴項（所有工作區）
 npm install
 
-# 3. Set up environment variables
+# 3. 設置環境變數
 cp .env.example .env.local
-# Edit .env.local and add your GEMINI_API_KEY
+# 編輯 .env.local 並添加您的 GEMINI_API_KEY
 ```
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ 配置
 
-### 🔐 API Key Management
+### 🔐 API 金鑰管理
 
-SmartExam supports two secure ways to configure your Gemini API key:
+SmartExam 支持兩種安全的方式來配置您的 Gemini API 金鑰：
 
-#### Method 1️⃣: Direct API Key (Development)
+#### 方法 1️⃣：直接 API 金鑰（開發）
 
-For local development only. API key is exposed to browser:
+僅用於本地開發。API 金鑰暴露給瀏覽器：
 
 ```bash
-# 1. Copy environment template
+# 1. 複製環境模板
 cp .env.example .env.local
 
-# 2. Add your Gemini API key
+# 2. 添加您的 Gemini API 金鑰
 echo "VITE_GEMINI_API_KEY=your_gemini_api_key_here" >> .env.local
 
-# 3. Start dev server
+# 3. 啟動開發服務器
 npm run dev
 ```
 
-**⚠️ Security Warning:** Never commit `.env.local` to version control. The API key will be visible to users in browser DevTools.
+**⚠️ 安全警告**：永遠不要將 `.env.local` 提交到版本控制。API 金鑰將在瀏覽器開發工具中對用戶可見。
 
 ---
 
-#### Method 2️⃣: Backend Proxy (Production - Recommended ⭐)
+#### 方法 2️⃣：後端代理（生產環境 - 推薦 ⭐）
 
-Use a secure backend proxy to hide your API key:
+使用安全的後端代理隱藏您的 API 金鑰：
 
 ```bash
-# 1. Copy environment template
+# 1. 複製環境模板
 cp .env.example .env.local
 
-# 2. Enable proxy mode (development)
+# 2. 啟用代理模式（開發）
 echo "VITE_USE_GEMINI_PROXY=true" >> .env.local
 
-# 3. For Vercel deployment, add server-side environment variable:
-# Go to Vercel Dashboard → Project Settings → Environment Variables
-# Add: GEMINI_API_KEY=your_key_here (server-side only)
+# 3. 對於 Vercel 部署，添加服務器端環境變數：
+# 轉到 Vercel Dashboard → Project Settings → Environment Variables
+# 添加：GEMINI_API_KEY=your_key_here（僅服務器端）
 ```
 
-**Benefits of Proxy Mode:**
-- ✅ API key never exposed to browser
-- ✅ Request rate limiting
-- ✅ API usage auditing
-- ✅ Better error handling
-- ✅ Production-ready security
+**代理模式的好處**：
+- ✅ API 金鑰永遠不暴露給瀏覽器
+- ✅ 請求速率限制
+- ✅ API 使用審計
+- ✅ 更好的錯誤處理
+- ✅ 生產就緒的安全性
 
 ---
 
-### Getting Your Gemini API Key
+### 獲取您的 Gemini API 金鑰
 
-1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Click "Get API Key"
-3. Copy your API key
-4. Add it to your environment configuration
-
----
-
-### Environment Variables Reference
-
-| Variable | Mode | Value | Required |
-|----------|------|-------|----------|
-| `VITE_GEMINI_API_KEY` | Development | Your API key | Yes (Dev only) |
-| `VITE_USE_GEMINI_PROXY` | Both | `true`/`false` | No (Default: false) |
-| `VITE_GEMINI_PROXY_URL` | Both | `/api/proxy-gemini` | No (Custom proxy URL) |
-| `GEMINI_API_KEY` | Production | Your API key | Yes (Server-side only) |
+1. 前往 [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. 點擊"取得 API 金鑰"
+3. 複製您的 API 金鑰
+4. 將其添加到您的環境配置中
 
 ---
 
-### Available Scripts (Root Level)
+### 環境變數參考
 
-| Command | Description | Port |
-|---------|-------------|------|
-| `npm run dev:web` | Start **Web App** dev server | 3000 |
-| `npm run dev:electron` | Start **Electron App** (includes dev server) | 5173 + Electron |
-| `npm run build:web` | Build Web App for production | - |
-| `npm run build:electron` | Build Electron App (includes installer) | - |
-| `npm run test` | Run all tests (core + web) | - |
-| `npm run type-check` | TypeScript type checking | - |
-| `npm run clean` | Clean all build artifacts | - |
-| `npm run install:all` | Install all workspace dependencies | - |
+| 變數 | 模式 | 值 | 需要 |
+|------|------|-------|------|
+| `VITE_GEMINI_API_KEY` | 開發 | 您的 API 金鑰 | 是（僅開發） |
+| `VITE_USE_GEMINI_PROXY` | 兩者 | `true`/`false` | 否（預設：false） |
+| `VITE_GEMINI_PROXY_URL` | 兩者 | `/api/proxy-gemini` | 否（自訂代理 URL） |
+| `GEMINI_API_KEY` | 生產 | 您的 API 金鑰 | 是（僅服務器端） |
 
 ---
 
-## 🌐 WebApp Guide
+### 可用的腳本（根級別）
 
-### Quick Start - Web Version
+| 命令 | 說明 | 端口 |
+|------|------|------|
+| `npm run dev:web` | 啟動 **Web 應用** 開發服務器 | 3000 |
+| `npm run dev:electron` | 啟動 **Electron 應用**（包括開發服務器） | 5173 + Electron |
+| `npm run build:web` | 為生產構建 Web 應用 | - |
+| `npm run build:electron` | 構建 Electron 應用（包括安裝程序） | - |
+| `npm run test` | 運行所有測試（核心 + web） | - |
+| `npm run type-check` | TypeScript 類型檢查 | - |
+| `npm run clean` | 清理所有構建產物 | - |
+| `npm run install:all` | 安裝所有工作區依賴項 | - |
+
+---
+
+## 🌐 Web 應用指南
+
+### 快速開始 - Web 版本
 
 ```bash
-# Start development server (port 3000)
+# 啟動開發服務器（端口 3000）
 npm run dev:web
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+在瀏覽器中打開 [http://localhost:3000](http://localhost:3000)。
 
-### Web Development
+### Web 開發
 
 ```bash
-# Watch mode - automatic reload on file changes
+# 監視模式 - 文件更改時自動重新加載
 npm run dev:web
 
-# Type checking
+# 類型檢查
 cd packages/web && npm run type-check
 
-# Run tests
+# 運行測試
 npm test
 ```
 
-### Web Production Build
+### Web 生產構建
 
 ```bash
-# Build optimized bundle
+# 構建優化的捆綁包
 npm run build:web
 
-# Preview production build
+# 預覽生產構建
 cd packages/web && npm run preview
 ```
 
-Output: `packages/web/dist/` (Ready to deploy to Vercel, Netlify, etc.)
+輸出：`packages/web/dist/`（可部署到 Vercel、Netlify 等）
 
-### Deploy Web App
+### 部署 Web 應用
 
-#### Deploy to Vercel (Recommended)
+#### 部署到 Vercel（推薦）
 
 ```bash
-# Install Vercel CLI
+# 安裝 Vercel CLI
 npm i -g vercel
 
-# Deploy
+# 部署
 vercel
 ```
 
-#### Deploy to Netlify
+#### 部署到 Netlify
 
 ```bash
-# Install Netlify CLI
+# 安裝 Netlify CLI
 npm i -g netlify-cli
 
-# Deploy
+# 部署
 netlify deploy --prod --dir packages/web/dist
 ```
 
-#### Deploy to GitHub Pages
+#### 部署到 GitHub Pages
 
 ```bash
 npm run build:web
-# Push packages/web/dist to gh-pages branch
+# 將 packages/web/dist 推送到 gh-pages 分支
 ```
 
 ---
 
-## 🖥️ Electron (Desktop) Guide
+## 🖥️ Electron（桌面）指南
 
-### Quick Start - Electron Desktop App
+### 快速開始 - Electron 桌面應用
 
 ```bash
-# Start Electron development environment
-# Runs both Vite dev server and Electron in parallel
+# 啟動 Electron 開發環境
+# 並行運行 Vite 開發服務器和 Electron
 npm run dev:electron
 ```
 
-This will:
-1. Start Vite dev server (port 5173)
-2. Launch Electron app with dev tools
-3. Enable hot reload for React changes
+這將：
+1. 啟動 Vite 開發服務器（端口 5173）
+2. 使用開發工具啟動 Electron 應用
+3. 啟用 React 更改的熱重新加載
 
-### Electron Development
+### Electron 開發
 
 ```bash
-# Development with Electron dev tools
+# 使用 Electron 開發工具進行開發
 npm run dev:electron
 
-# Type checking
+# 類型檢查
 cd packages/desktop && npm run type-check
 
-# Run tests
+# 運行測試
 npm test
 ```
 
-### Electron Production Build
+### Electron 生產構建
 
 ```bash
-# Build Electron app (includes macOS .dmg and Windows installer)
+# 構建 Electron 應用（包括 macOS .dmg 和 Windows 安裝程序）
 npm run build:electron
 ```
 
-Output:
+輸出：
 - **macOS**: `packages/desktop/dist/SmartExam-*.dmg`
-- **Windows**: `packages/desktop/dist/SmartExam-*.exe` (NSIS installer + portable)
+- **Windows**: `packages/desktop/dist/SmartExam-*.exe`（NSIS 安裝程序 + 便攜式）
 - **Linux**: `packages/desktop/dist/smartexam-*.AppImage`
 
-### Electron Configuration
+### Electron 配置
 
-Electron build is configured in `packages/desktop/package.json`:
+Electron 構建在 `packages/desktop/package.json` 中配置：
 
 ```json
 {
@@ -338,187 +338,187 @@ Electron build is configured in `packages/desktop/package.json`:
     "appId": "com.smartexam.app",
     "productName": "SmartExam",
     "files": ["dist/**/*", "dist-electron/**/*"],
-    "dmg": { /* macOS DMG config */ },
-    "win": { /* Windows installer config */ }
+    "dmg": { /* macOS DMG 配置 */ },
+    "win": { /* Windows 安裝程序配置 */ }
   }
 }
 ```
 
-Customize in:
-- `packages/desktop/package.json` - App metadata and icons
-- `packages/desktop/electron/main.ts` - Electron main process
-- `packages/desktop/vite.config.ts` - Build configuration
+在以下位置自訂：
+- `packages/desktop/package.json` - 應用元數據和圖標
+- `packages/desktop/electron/main.ts` - Electron 主程序
+- `packages/desktop/vite.config.ts` - 構建配置
 
-### Building for Specific Platform
+### 為特定平台構建
 
 ```bash
-# macOS only
-npm run build:electron  # On macOS
+# 僅 macOS
+npm run build:electron  # 在 macOS 上
 
-# Windows only
-npm run build:electron  # On Windows
+# 僅 Windows
+npm run build:electron  # 在 Windows 上
 ```
 
-### Distributing Electron App
+### 分發 Electron 應用
 
-1. **Sign App** (recommended for macOS)
-2. **Host Installer** - Upload to GitHub releases
-3. **Auto-updates** - Use electron-updater
-
----
-
-## 📊 Architecture Comparison
-
-| Feature | Web App | Desktop (Electron) |
-|---------|---------|-------------------|
-| **Platform** | Browser | Windows, macOS, Linux |
-| **Installation** | No (URL-based) | Download & Install |
-| **Update** | Automatic | Manual or auto-updater |
-| **Storage** | localStorage | File system access |
-| **Offline** | Limited | Full offline support |
-| **Performance** | Good | Excellent |
-| **Bundle Size** | ~600KB | ~150MB (with Electron) |
+1. **簽署應用**（macOS 推薦）
+2. **託管安裝程序** - 上傳到 GitHub 發布版本
+3. **自動更新** - 使用 electron-updater
 
 ---
 
-## 🔄 Shared Code (packages/core)
+## 📊 架構比較
 
-Both web and desktop applications share:
+| 功能 | Web 應用 | 桌面 (Electron) |
+|------|---------|-----------------|
+| **平台** | 瀏覽器 | Windows、macOS、Linux |
+| **安裝** | 無（基於 URL） | 下載並安裝 |
+| **更新** | 自動 | 手動或自動更新 |
+| **存儲** | localStorage | 文件系統訪問 |
+| **離線** | 有限 | 完整離線支持 |
+| **性能** | 良好 | 優秀 |
+| **捆綁大小** | ~600KB | ~150MB（包括 Electron） |
+
+---
+
+## 🔄 共享代碼（packages/core）
+
+Web 和桌面應用程序共享：
 
 ```
 packages/core/src/
-├── App.tsx              # Main application component
-├── components/          # UI components
-├── services/           # AI services (Gemini API)
-├── types/              # TypeScript types
-├── utils/              # Utility functions
-├── __tests__/          # Tests
-└── constants/          # App constants
+├── App.tsx              # 主應用組件
+├── components/          # UI 組件
+├── services/           # AI 服務（Gemini API）
+├── types/              # TypeScript 類型
+├── utils/              # 工具函數
+├── __tests__/          # 測試
+└── constants/          # 應用常量
 ```
 
-### Running Core Tests
+### 運行核心測試
 
 ```bash
-# Tests for all shared logic
+# 所有共享邏輯的測試
 npm test
 
-# Specific test file
+# 特定測試文件
 npm test -- difficultyTracking.test.ts
 
-# Test coverage
+# 測試覆蓋率
 npm test -- --coverage
 ```
 
 ---
 
-## ⚙️ Settings Panel
+## ⚙️ 設置面板
 
-SmartExam includes a comprehensive **Settings Panel** for managing configuration without code changes.
+SmartExam 包括一個全面的**設置面板**，用於在不進行代碼更改的情況下管理配置。
 
-### Accessing Settings
+### 訪問設置
 
-Click the **⚙️ Settings button** (gear icon) in the top-right corner of the app header.
+點擊應用標題欄右上角的**⚙️ 設置按鈕**（齒輪圖標）。
 
-### Available Settings
+### 可用設置
 
-#### 🔐 API Key Management
-- **Set/Update API Key**: Enter your Gemini API key directly in the app
-- **Validation**: Automatically validates key format
-- **Security**: Stored securely in browser localStorage
-- **Clear Key**: Option to remove stored key
+#### 🔐 API 金鑰管理
+- **設置/更新 API 金鑰**：直接在應用中輸入您的 Gemini API 金鑰
+- **驗證**：自動驗證金鑰格式
+- **安全性**：安全地存儲在瀏覽器 localStorage 中
+- **清除金鑰**：選項以刪除存儲的金鑰
 
-#### 🤖 AI Model Selection
-- **Gemini 3 Flash** (Default)
+#### 🤖 AI 模型選擇
+- **Gemini 3 Flash**（預設）
 - **Gemini 2.0 Flash**
 - **Gemini 2.0 Pro**
-- **Gemini 2.0 Flash Experimental**
+- **Gemini 2.0 Flash 實驗版**
 
-#### 🔄 Proxy Configuration (Production)
-- **Enable API Proxy**: Use backend proxy for production deployments
-- **Proxy URL**: Configure custom proxy endpoint
+#### 🔄 代理配置（生產環境）
+- **啟用 API 代理**：為生產部署使用後端代理
+- **代理 URL**：配置自訂代理端點
 
-#### 📋 Log Level Configuration
-- **DEBUG**: All messages
-- **INFO**: General information
-- **WARN**: Warnings only
-- **ERROR**: Errors only
+#### 📋 日誌級別配置
+- **DEBUG**：所有消息
+- **INFO**：一般信息
+- **WARN**：僅警告
+- **ERROR**：僅錯誤
 
-### Settings Features
+### 設置功能
 
-✅ **Persistent Storage** - Settings saved in localStorage
-✅ **Real-time Validation** - Instant feedback on inputs
-✅ **Reset Option** - One-click reset to defaults
-✅ **Dark Mode Support** - Settings panel adapts to theme
-
----
-
-## 🎯 Usage
-
-### Creating Your First Exam
-
-1. **Upload Your Material**
-   - Upload a file (PDF, TXT, or image)
-   - Import from Google Docs
-   - Or paste text directly
-
-2. **Configure Exam Settings**
-   - Choose mode: Mock, Practice, or Study
-   - Set question count and duration
-   - Select answer format and order
-
-3. **Take the Exam**
-   - Answer questions interactively
-   - Get instant feedback (Practice/Study modes)
-   - Track your progress
-
-4. **Review Results**
-   - Detailed performance analysis
-   - Topic-based breakdown
-   - AI coaching insights
+✅ **持久存儲** - 設置保存在 localStorage 中
+✅ **實時驗證** - 對輸入的即時反饋
+✅ **重置選項** - 一鍵重置為預設
+✅ **深色模式支持** - 設置面板適應主題
 
 ---
 
-## 🏗️ Deployment
+## 🎯 使用
 
-### Deploy to GitHub Pages
+### 建立您的第一次考試
 
-The easiest way to deploy SmartExam is using GitHub Pages with automatic GitHub Actions deployment:
+1. **上傳您的材料**
+   - 上傳文件（PDF、TXT 或圖像）
+   - 從 Google Docs 導入
+   - 或直接粘貼文本
 
-#### Automatic Deployment (Recommended)
+2. **配置考試設置**
+   - 選擇模式：模擬、練習或學習
+   - 設置問題數量和時長
+   - 選擇答案格式和順序
 
-GitHub Actions automatically builds and deploys to GitHub Pages on every push to `main`:
+3. **參加考試**
+   - 互動式回答問題
+   - 獲得即時反饋（練習/學習模式）
+   - 追蹤您的進度
 
-1. Just push to main branch
-2. Workflow runs: builds the app and deploys to `https://allan1114.github.io/smartexam/`
+4. **查看結果**
+   - 詳細的性能分析
+   - 基於主題的分解
+   - AI 教練見解
 
-#### Manual Deployment
+---
+
+## 🏗️ 部署
+
+### 部署到 GitHub Pages
+
+部署 SmartExam 的最簡單方法是使用 GitHub Pages 和自動 GitHub Actions 部署：
+
+#### 自動部署（推薦）
+
+GitHub Actions 在每次推送到 `main` 時自動構建並部署到 GitHub Pages：
+
+1. 只需推送到 main 分支
+2. 工作流運行：構建應用並部署到 `https://allan1114.github.io/smartexam/`
+
+#### 手動部署
 
 ```bash
-# Build the web app
+# 構建 web 應用
 npm run build:web
 
-# Deploy to gh-pages branch
+# 部署到 gh-pages 分支
 git add packages/web/dist -f
 git commit -m "Deploy to GitHub Pages"
 git subtree push --prefix packages/web/dist origin gh-pages
 ```
 
-### Deploy to Vercel (Recommended for Production)
+### 部署到 Vercel（生產環境推薦）
 
-The easiest way to deploy is using Vercel with secure API key handling:
+最簡單的部署方式是使用 Vercel 和安全的 API 金鑰處理：
 
-#### Via Vercel Dashboard
+#### 通過 Vercel Dashboard
 
-1. Go to [vercel.com](https://vercel.com) and sign in
-2. Click **"Add New..."** → **"Project"**
-3. Import your GitHub repository
-4. **Important:** Add **server-side** environment variable:
-   - **Name:** `GEMINI_API_KEY`
-   - **Value:** Your Gemini API key
-   - **Scope:** Production (not client-side!)
-5. Click **Deploy**
+1. 前往 [vercel.com](https://vercel.com) 並登錄
+2. 點擊 **"Add New..."** → **"Project"**
+3. 導入您的 GitHub 存儲庫
+4. **重要**：添加**服務器端**環境變數：
+   - **名稱**：`GEMINI_API_KEY`
+   - **值**：您的 Gemini API 金鑰
+   - **範圍**：生產（非客戶端！）
+5. 點擊 **Deploy**
 
-#### Via Vercel CLI
+#### 通過 Vercel CLI
 
 ```bash
 npm i -g vercel
@@ -526,116 +526,116 @@ vercel login
 vercel --prod --env GEMINI_API_KEY=your_api_key_here
 ```
 
-#### Verify Secure Deployment
+#### 驗證安全部署
 
 ```bash
 curl https://your-app.vercel.app
-# Search page source - should NOT contain your API key ✅
+# 搜索頁面源 - 不應包含您的 API 金鑰 ✅
 ```
 
 ---
 
-## 📖 Documentation
+## 📖 文檔
 
-### Project Structure
+### 項目結構
 
 ```
 smartexam/
 ├── packages/
-│   ├── core/                    # Shared library
-│   ├── web/                     # Web Application (Vite)
-│   └── desktop/                 # Electron Desktop App
-├── .env.example                 # Environment variables template
-├── package.json                 # Root package (workspaces config)
-├── README.md                    # This file
-└── DEPLOYMENT.md                # Deployment guide
+│   ├── core/                    # 共享庫
+│   ├── web/                     # Web 應用程序（Vite）
+│   └── desktop/                 # Electron 桌面應用
+├── .env.example                 # 環境變數模板
+├── package.json                 # 根包（工作區配置）
+├── README.md                    # 本文件
+└── DEPLOYMENT.md                # 部署指南
 ```
 
-### Tech Stack
+### 技術堆棧
 
-- **Frontend**: React 19 + TypeScript + Vite
-- **Styling**: Tailwind CSS
-- **Desktop**: Electron
-- **AI**: Google Gemini API
-- **Monorepo**: npm workspaces
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Here's how you can help:
-
-### Reporting Bugs
-
-- Use [GitHub Issues](../../issues)
-- Include detailed steps to reproduce
-- Provide screenshots if applicable
-
-### Suggesting Features
-
-- Use [GitHub Issues](../../issues)
-- Describe the use case clearly
-
-### Pull Requests
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests
-5. Commit and push
-6. Open a Pull Request
+- **前端**：React 19 + TypeScript + Vite
+- **樣式**：Tailwind CSS
+- **桌面**：Electron
+- **AI**：Google Gemini API
+- **Monorepo**：npm 工作區
 
 ---
 
-## 🔒 Security Best Practices
+## 🤝 貢獻
 
-### API Key Security
+歡迎貢獻！以下是您如何幫助的方式：
 
-#### Development
+### 報告錯誤
+
+- 使用 [GitHub Issues](../../issues)
+- 包括詳細的重現步驟
+- 如果適用，提供屏幕截圖
+
+### 建議功能
+
+- 使用 [GitHub Issues](../../issues)
+- 清楚地描述用例
+
+### 拉取請求
+
+1. Fork 存儲庫
+2. 創建功能分支
+3. 進行更改
+4. 運行測試
+5. 提交並推送
+6. 打開拉取請求
+
+---
+
+## 🔒 安全最佳實踐
+
+### API 金鑰安全
+
+#### 開發
 ```bash
-# ✅ SAFE: Use environment variables
+# ✅ 安全：使用環境變數
 VITE_GEMINI_API_KEY=sk_...
 
-# ❌ UNSAFE: Never hardcode keys
+# ❌ 不安全：永遠不要硬編碼金鑰
 const API_KEY = "sk_...";
 ```
 
-#### Production
+#### 生產環境
 
-**Always use the backend proxy method:**
+**始終使用後端代理方法**：
 
-1. Add API key as server-side environment variable
-2. Never expose to client-side code
-3. Monitor usage and set billing alerts
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+1. 將 API 金鑰添加為服務器端環境變數
+2. 永遠不要暴露給客戶端代碼
+3. 監控使用情況並設置帳單提醒
 
 ---
 
-## 🙏 Acknowledgments
+## 📄 授權
 
-- [Google Gemini AI](https://ai.google.dev/) for AI capabilities
-- [Vite](https://vitejs.dev/) for the build tool
-- [React](https://react.dev/) for the UI framework
-- [Tailwind CSS](https://tailwindcss.com/) for styling
+本項目在 MIT 授權下 - 請參閱 [LICENSE](LICENSE) 文件以了解詳情。
 
 ---
 
-## 📞 Support
+## 🙏 致謝
 
-If you need help:
+- [Google Gemini AI](https://ai.google.dev/) - AI 功能
+- [Vite](https://vitejs.dev/) - 構建工具
+- [React](https://react.dev/) - UI 框架
+- [Tailwind CSS](https://tailwindcss.com/) - 樣式
 
-- 📧 Email: [likwokwa@gmail.com](mailto:likwokwa@gmail.com)
-- 🐛 Issues: [GitHub Issues](../../issues)
+---
+
+## 📞 支持
+
+如果您需要幫助：
+
+- 📧 電子郵件：[likwokwa@gmail.com](mailto:likwokwa@gmail.com)
+- 🐛 問題：[GitHub Issues](../../issues)
 
 ---
 
 <div align="center">
 
-**Built with ❤️ and AI**
+**用 ❤️ 和 AI 構建**
 
 </div>
