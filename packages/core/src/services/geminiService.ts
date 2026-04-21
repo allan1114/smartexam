@@ -19,9 +19,14 @@ const callGeminiViaProxy = async (
   contents: any,
   config?: any
 ): Promise<{ text: string }> => {
-  const useProxy = localStorage.getItem('smart_exam_use_proxy') !== 'false';
+  // Default is direct mode (false). Only proxy mode if explicitly set to 'true'.
+  const useProxy = localStorage.getItem('smart_exam_use_proxy') === 'true';
   const proxyUrl = localStorage.getItem('smart_exam_proxy_url') || '/api/proxy-gemini';
   const apiKey = localStorage.getItem('smart_exam_api_key') || '';
+
+  if (!useProxy && !apiKey) {
+    throw new Error('NO_API_KEY: No API key configured. Click ⚙️ Settings → paste your Gemini API key → Save Settings.');
+  }
 
   if (!useProxy && apiKey) {
     const { systemInstruction, responseMimeType, temperature, seed, responseSchema } = config || {};
