@@ -72,12 +72,6 @@ const QuestionDisplay: React.FC<QuestionDisplayProps> = ({
         })}
       </div>
 
-      {question.sourceQuote && (
-        <div className="mt-8 p-5 bg-slate-50 dark:bg-slate-900 rounded-2xl border-l-4 border-blue-500">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Source</p>
-          <p className="text-sm text-slate-700 dark:text-slate-300 italic">&quot;{question.sourceQuote}&quot;</p>
-        </div>
-      )}
     </div>
   );
 };

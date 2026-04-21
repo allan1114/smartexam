@@ -106,20 +106,14 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
         {showInstantFeedback && (
           <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-lg border border-slate-200 dark:border-slate-700 p-8 mb-8 animate-slide-up">
             <div className="flex items-center space-x-3 mb-4">
-              <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${selectedOption === currentQuestion.correctAnswer ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
-                {selectedOption === currentQuestion.correctAnswer ? 'Correct' : 'Incorrect'}
+              <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${selectedOption?.trim().toLowerCase() === currentQuestion.correctAnswer?.trim().toLowerCase() ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+                {selectedOption?.trim().toLowerCase() === currentQuestion.correctAnswer?.trim().toLowerCase() ? 'Correct' : 'Incorrect'}
               </div>
               <span className="text-xs font-black uppercase tracking-widest text-slate-400">Explanation</span>
             </div>
             <p className="text-slate-700 dark:text-slate-300 font-medium mb-6 leading-relaxed text-lg italic">
               {currentQuestion.explanation}
             </p>
-            {currentQuestion.sourceQuote && (
-              <div className="bg-amber-50 dark:bg-amber-900/20 p-5 rounded-2xl border border-amber-100 dark:border-amber-900/30">
-                <p className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-500 mb-2 tracking-widest">Document Reference</p>
-                <p className="text-sm font-medium italic text-slate-600 dark:text-slate-400 leading-relaxed">&quot;{currentQuestion.sourceQuote}&quot;</p>
-              </div>
-            )}
           </div>
         )}
       </div>
