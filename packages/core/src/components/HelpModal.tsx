@@ -137,6 +137,13 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, isDark }) => {
                             echo ".env" &gt;&gt; .gitignore
                           </div>
                         </li>
+                        <li>
+                          Verify the <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.env</code> file was created correctly:
+                          <div className={`mt-1 ml-4 px-3 py-2 rounded font-mono text-xs ${isDark ? 'bg-slate-900' : 'bg-slate-200'}`}>
+                            cat .env
+                          </div>
+                          <p className={`mt-1 ml-4 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>You should see: <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>GEMINI_API_KEY=your_actual_key_here</code></p>
+                        </li>
                         <li>Start your backend server — it will load the key automatically</li>
                         <li>In SmartExam: click ⚙️ Settings → enable "Use API Proxy" → enter your backend URL</li>
                       </ol>
