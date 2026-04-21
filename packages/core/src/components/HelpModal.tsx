@@ -97,43 +97,49 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, isDark }) => {
             <div className={`space-y-4 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
               <section>
                 <h3 className={`text-lg font-bold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>🔑 Configure Your API Key</h3>
-                <p className="mb-4">SmartExam uses Google Gemini AI to generate and analyze exam questions. You need to provide an API key.</p>
+                <p className="mb-4">SmartExam uses Google Gemini AI to generate exam questions. All AI requests are routed through a <strong>server-side proxy</strong> — your API key is never exposed to the browser.</p>
 
                 <div className={`p-4 rounded-lg ${isDark ? 'bg-slate-700' : 'bg-slate-100'} mb-4`}>
                   <h4 className={`font-semibold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>Step 1: Get Your API Key</h4>
                   <ol className="list-decimal list-inside space-y-2 ml-2">
-                    <li>Go to <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Google AI Studio</a></li>
+                    <li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Google AI Studio</a></li>
                     <li>Sign in with your Google account</li>
-                    <li>Click "Get API Key" or "Create API Key"</li>
-                    <li>Copy your API key</li>
+                    <li>Click "Create API Key"</li>
+                    <li>Copy your API key — keep it secret</li>
                   </ol>
                 </div>
 
-                <div className={`p-4 rounded-lg ${isDark ? 'bg-slate-700' : 'bg-slate-100'}`}>
-                  <h4 className={`font-semibold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>Step 2: Configure API Access</h4>
-                  <p className="text-sm mb-3 font-semibold">Choose one method:</p>
-                  <div className="space-y-3 text-sm ml-2">
+                <div className={`p-4 rounded-lg ${isDark ? 'bg-slate-700' : 'bg-slate-100'} mb-4`}>
+                  <h4 className={`font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>Step 2: Add the Key to Your Backend</h4>
+                  <div className="space-y-4 text-sm">
                     <div>
-                      <p className="font-semibold text-indigo-600 dark:text-indigo-400">✓ Option A - Backend Proxy (Recommended):</p>
-                      <ul className="ml-4 mt-1 space-y-1">
-                        <li>• Set <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>GEMINI_API_KEY</code> on your backend server</li>
-                        <li>• Enable "Use API Proxy" in Settings (⚙️ icon)</li>
-                        <li>• Your API key stays hidden from the browser</li>
+                      <p className={`font-semibold mb-1 ${isDark ? 'text-indigo-300' : 'text-indigo-700'}`}>Vercel deployment:</p>
+                      <ul className="ml-3 space-y-1">
+                        <li>• In Vercel dashboard → Project → Settings → Environment Variables</li>
+                        <li>• Add <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>GEMINI_API_KEY</code> = your key</li>
+                        <li>• Redeploy — the proxy at <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>/api/proxy-gemini</code> handles the rest</li>
                       </ul>
                     </div>
                     <div>
-                      <p className="font-semibold">Option B - Direct (Development Only):</p>
-                      <ul className="ml-4 mt-1 space-y-1">
-                        <li>• Store API key in browser localStorage</li>
-                        <li>• Only use for development/testing</li>
+                      <p className={`font-semibold mb-1 ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>Custom backend / self-hosted:</p>
+                      <ul className="ml-3 space-y-1">
+                        <li>• Set <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>GEMINI_API_KEY</code> as a server environment variable</li>
+                        <li>• Click ⚙️ Settings → enable "Use API Proxy" → enter your proxy URL</li>
                       </ul>
                     </div>
                   </div>
                 </div>
 
-                <div className={`mt-4 p-4 rounded-lg ${isDark ? 'bg-amber-900/30 border border-amber-700' : 'bg-amber-50 border border-amber-200'}`}>
+                <div className={`p-4 rounded-lg ${isDark ? 'bg-green-900/30 border border-green-700' : 'bg-green-50 border border-green-200'} mb-4`}>
+                  <p className={`text-sm font-semibold mb-1 ${isDark ? 'text-green-300' : 'text-green-800'}`}>🔒 Why server-side proxy?</p>
+                  <p className={`text-sm ${isDark ? 'text-green-200' : 'text-green-700'}`}>
+                    Browser JavaScript is visible to anyone. A backend proxy keeps your API key in a secure server environment, adds rate limiting, and prevents quota abuse.
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-lg ${isDark ? 'bg-amber-900/30 border border-amber-700' : 'bg-amber-50 border border-amber-200'}`}>
                   <p className={`text-sm ${isDark ? 'text-amber-200' : 'text-amber-800'}`}>
-                    <strong>⚠️ Production Security:</strong> Always use the proxy method for production. Never expose your API key in the browser.
+                    <strong>⚠️ Never paste your API key into the browser.</strong> If you suspect a key has been exposed, revoke it immediately in Google AI Studio and generate a new one.
                   </p>
                 </div>
               </section>
