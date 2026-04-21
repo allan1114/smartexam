@@ -5,26 +5,69 @@ import { cleanJsonResponse, shuffleArray } from "../utils/fileProcessor";
 import { ApiError, isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
 
+const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+const extractText = (data: any): string =>
+  data?.candidates?.[0]?.content?.parts?.[0]?.text ?? data?.text ?? '';
+
 /**
- * Call Gemini API through backend proxy (API key is protected on server)
+ * Call Gemini API — proxy mode (Vercel/backend) or direct mode (browser API key).
+ * Mode is controlled by localStorage smart_exam_use_proxy and smart_exam_api_key.
  */
 const callGeminiViaProxy = async (
   model: string,
   contents: any,
   config?: any
-): Promise<any> => {
-  const response = await fetch('/api/proxy-gemini', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, contents, config })
-  });
+): Promise<{ text: string }> => {
+  const useProxy = localStorage.getItem('smart_exam_use_proxy') !== 'false';
+  const proxyUrl = localStorage.getItem('smart_exam_proxy_url') || '/api/proxy-gemini';
+  const apiKey = localStorage.getItem('smart_exam_api_key') || '';
 
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.message || `API Error: ${response.statusText}`);
+  if (!useProxy && apiKey) {
+    const { systemInstruction, responseMimeType, temperature, seed, responseSchema } = config || {};
+    const contentsArray = Array.isArray(contents)
+      ? contents
+      : [{ role: 'user', parts: contents.parts || [{ text: JSON.stringify(contents) }] }];
+
+    const body: any = {
+      contents: contentsArray,
+      ...(systemInstruction && {
+        systemInstruction: { parts: [{ text: systemInstruction }] }
+      }),
+      generationConfig: {
+        ...(responseMimeType && { responseMimeType }),
+        ...(temperature !== undefined && { temperature }),
+        ...(seed !== undefined && { seed }),
+        ...(responseSchema && { responseSchema }),
+      },
+    };
+
+    const resp = await fetch(`${GEMINI_DIRECT_BASE}/${model}:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error?.message || `Gemini API Error: ${resp.status} ${resp.statusText}`);
+    }
+
+    return { text: extractText(await resp.json()) };
   }
 
-  return response.json();
+  const resp = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, contents, config }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.message || `API Error: ${resp.statusText}`);
+  }
+
+  return { text: extractText(await resp.json()) };
 };
 
 /**

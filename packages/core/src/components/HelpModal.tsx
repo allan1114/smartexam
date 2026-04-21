@@ -97,70 +97,64 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, isDark }) => {
             <div className={`space-y-4 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
               <section>
                 <h3 className={`text-lg font-bold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>🔑 Configure Your API Key</h3>
-                <p className="mb-4">SmartExam uses Google Gemini AI to generate exam questions. All AI requests are routed through a <strong>server-side proxy</strong> — your API key is never exposed to the browser.</p>
+                <p className="mb-4">SmartExam uses Google Gemini AI. Choose the mode that fits your setup:</p>
 
-                <div className={`p-4 rounded-lg ${isDark ? 'bg-slate-700' : 'bg-slate-100'} mb-4`}>
-                  <h4 className={`font-semibold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>Step 1: Get Your API Key</h4>
-                  <ol className="list-decimal list-inside space-y-2 ml-2">
-                    <li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Google AI Studio</a></li>
-                    <li>Sign in with your Google account</li>
-                    <li>Click "Create API Key"</li>
-                    <li>Copy your API key — keep it secret</li>
+                {/* Mode A: Direct */}
+                <div className={`p-4 rounded-lg ${isDark ? 'bg-indigo-900/30 border border-indigo-700' : 'bg-indigo-50 border border-indigo-200'} mb-4`}>
+                  <h4 className={`font-semibold mb-2 ${isDark ? 'text-indigo-200' : 'text-indigo-900'}`}>⚡ Mode A — Direct (GitHub Pages / no backend needed)</h4>
+                  <p className={`text-sm mb-3 ${isDark ? 'text-indigo-200' : 'text-indigo-800'}`}>Your key is stored in your browser only and sent straight to Google. No server required.</p>
+                  <ol className={`list-decimal list-inside space-y-1 ml-2 text-sm ${isDark ? 'text-indigo-100' : 'text-indigo-900'}`}>
+                    <li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Google AI Studio</a> → Sign in → "Create API Key" → Copy it</li>
+                    <li>Click ⚙️ <strong>Settings</strong> on this page</li>
+                    <li>Make sure <strong>"Use Backend Proxy"</strong> is <strong>unchecked</strong></li>
+                    <li>Paste your key into the <strong>Gemini API Key</strong> field → <strong>Save Settings</strong></li>
                   </ol>
                 </div>
 
+                {/* Mode B: Proxy */}
                 <div className={`p-4 rounded-lg ${isDark ? 'bg-slate-700' : 'bg-slate-100'} mb-4`}>
-                  <h4 className={`font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>Step 2: Add the Key to Your Backend</h4>
+                  <h4 className={`font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>🔒 Mode B — Server Proxy (Vercel / self-hosted)</h4>
+                  <p className={`text-sm mb-3 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>API key lives on your server — never in the browser. Enable <strong>"Use Backend Proxy"</strong> in Settings.</p>
                   <div className="space-y-4 text-sm">
                     <div>
                       <p className={`font-semibold mb-1 ${isDark ? 'text-indigo-300' : 'text-indigo-700'}`}>Vercel deployment:</p>
                       <ul className="ml-3 space-y-1">
-                        <li>• In Vercel dashboard → Project → Settings → Environment Variables</li>
-                        <li>• Add <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>GEMINI_API_KEY</code> = your key</li>
-                        <li>• Redeploy — the proxy at <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>/api/proxy-gemini</code> handles the rest</li>
+                        <li>• Vercel dashboard → Project → Settings → Environment Variables</li>
+                        <li>• Add <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>GEMINI_API_KEY</code> = your key → Redeploy</li>
                       </ul>
                     </div>
                     <div>
                       <p className={`font-semibold mb-2 ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>Custom backend / self-hosted:</p>
                       <ol className="ml-3 space-y-2 list-decimal list-inside">
                         <li>
-                          Open a terminal in your project folder and run:
+                          Create your <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.env</code> file in one command:
                           <div className={`mt-1 ml-4 px-3 py-2 rounded font-mono text-xs ${isDark ? 'bg-slate-900' : 'bg-slate-200'}`}>
                             echo "GEMINI_API_KEY=your_api_key_here" &gt; .env
                           </div>
-                          <p className={`mt-1 ml-4 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>This creates the <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.env</code> file in one step.</p>
                         </li>
-                        <li>Replace <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>your_api_key_here</code> with the key you copied in Step 1</li>
                         <li>
-                          Make sure <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.env</code> is in your <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.gitignore</code>:
+                          Add to <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.gitignore</code>:
                           <div className={`mt-1 ml-4 px-3 py-2 rounded font-mono text-xs ${isDark ? 'bg-slate-900' : 'bg-slate-200'}`}>
                             echo ".env" &gt;&gt; .gitignore
                           </div>
                         </li>
                         <li>
-                          Verify the <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>.env</code> file was created correctly:
+                          Verify it was created correctly:
                           <div className={`mt-1 ml-4 px-3 py-2 rounded font-mono text-xs ${isDark ? 'bg-slate-900' : 'bg-slate-200'}`}>
                             cat .env
                           </div>
                           <p className={`mt-1 ml-4 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>You should see: <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>GEMINI_API_KEY=your_actual_key_here</code></p>
                         </li>
-                        <li>Start your backend server — it will load the key automatically</li>
-                        <li>In SmartExam: click ⚙️ Settings → enable "Use API Proxy" → enter your backend URL</li>
+                        <li>Start your backend server — key loads automatically</li>
+                        <li>In SmartExam: ⚙️ Settings → enable "Use Backend Proxy" → enter your backend URL</li>
                       </ol>
                     </div>
                   </div>
                 </div>
 
-                <div className={`p-4 rounded-lg ${isDark ? 'bg-green-900/30 border border-green-700' : 'bg-green-50 border border-green-200'} mb-4`}>
-                  <p className={`text-sm font-semibold mb-1 ${isDark ? 'text-green-300' : 'text-green-800'}`}>🔒 Why server-side proxy?</p>
-                  <p className={`text-sm ${isDark ? 'text-green-200' : 'text-green-700'}`}>
-                    Browser JavaScript is visible to anyone. A backend proxy keeps your API key in a secure server environment, adds rate limiting, and prevents quota abuse.
-                  </p>
-                </div>
-
                 <div className={`p-4 rounded-lg ${isDark ? 'bg-amber-900/30 border border-amber-700' : 'bg-amber-50 border border-amber-200'}`}>
                   <p className={`text-sm ${isDark ? 'text-amber-200' : 'text-amber-800'}`}>
-                    <strong>⚠️ Never paste your API key into the browser.</strong> If you suspect a key has been exposed, revoke it immediately in Google AI Studio and generate a new one.
+                    <strong>⚠️ Keep your key safe.</strong> If you suspect it has been exposed, revoke it in Google AI Studio and generate a new one.
                   </p>
                 </div>
               </section>

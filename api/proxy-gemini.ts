@@ -74,11 +74,16 @@ export default async (req: VercelRequest, res: VercelResponse) => {
       });
     }
 
-    // 限制模型選擇（可選的安全措施）
+    // 允許的 Gemini 模型列表
     const allowedModels = [
       'gemini-3-flash-preview',
-      'gemini-pro',
-      'gemini-pro-vision'
+      'gemini-2.5-pro-preview-05-06',
+      'gemini-2.5-flash-preview-04-17',
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-exp',
+      'gemini-2.0-pro-exp-02-05',
+      'gemini-1.5-pro',
+      'gemini-1.5-flash',
     ];
 
     if (!allowedModels.includes(model)) {
@@ -86,6 +91,22 @@ export default async (req: VercelRequest, res: VercelResponse) => {
         error: `Model '${model}' not allowed. Allowed models: ${allowedModels.join(', ')}`
       });
     }
+
+    // Build properly formatted Gemini API request
+    const { systemInstruction, responseMimeType, temperature, seed, responseSchema, ...restConfig } = config || {};
+    const geminiBody: any = {
+      contents,
+      ...(systemInstruction && {
+        systemInstruction: { parts: [{ text: systemInstruction }] }
+      }),
+      generationConfig: {
+        ...(responseMimeType && { responseMimeType }),
+        ...(temperature !== undefined && { temperature }),
+        ...(seed !== undefined && { seed }),
+        ...(responseSchema && { responseSchema }),
+        ...restConfig,
+      },
+    };
 
     // 轉發請求到 Google Gemini API
     const response = await fetch(
@@ -95,10 +116,7 @@ export default async (req: VercelRequest, res: VercelResponse) => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          contents,
-          ...(config && { generationConfig: config }),
-        }),
+        body: JSON.stringify(geminiBody),
       }
     );
 
@@ -129,11 +147,11 @@ export default async (req: VercelRequest, res: VercelResponse) => {
     }
 
     const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 
-    // 記錄成功的請求（不記錄敏感信息）
     console.log(`✓ Gemini API call successful - Model: ${model}, Client: ${clientId}`);
 
-    return res.status(200).json(data);
+    return res.status(200).json({ text });
 
   } catch (error) {
     console.error('Proxy error:', error);

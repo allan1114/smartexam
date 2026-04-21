@@ -9,19 +9,21 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const [model, setModel] = useState('gemini-3-flash-preview');
   const [useProxy, setUseProxy] = useState(false);
   const [proxyUrl, setProxyUrl] = useState('/api/proxy-gemini');
+  const [apiKey, setApiKey] = useState('');
   const [logLevel, setLogLevel] = useState('WARN');
   const [saveMessage, setSaveMessage] = useState('');
 
   useEffect(() => {
-    // Load settings from localStorage
     const savedModel = localStorage.getItem('smart_exam_model');
     const savedUseProxy = localStorage.getItem('smart_exam_use_proxy');
     const savedProxyUrl = localStorage.getItem('smart_exam_proxy_url');
+    const savedApiKey = localStorage.getItem('smart_exam_api_key');
     const savedLogLevel = localStorage.getItem('smart_exam_log_level');
 
     if (savedModel) setModel(savedModel);
     if (savedUseProxy === 'true') setUseProxy(true);
     if (savedProxyUrl) setProxyUrl(savedProxyUrl);
+    if (savedApiKey) setApiKey(savedApiKey);
     if (savedLogLevel) setLogLevel(savedLogLevel);
   }, [isOpen]);
 
@@ -29,6 +31,11 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     localStorage.setItem('smart_exam_model', model);
     localStorage.setItem('smart_exam_use_proxy', String(useProxy));
     localStorage.setItem('smart_exam_proxy_url', proxyUrl);
+    if (apiKey) {
+      localStorage.setItem('smart_exam_api_key', apiKey);
+    } else {
+      localStorage.removeItem('smart_exam_api_key');
+    }
     localStorage.setItem('smart_exam_log_level', logLevel);
 
     setSaveMessage('✓ Settings saved successfully');
@@ -40,10 +47,12 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
       setModel('gemini-3-flash-preview');
       setUseProxy(false);
       setProxyUrl('/api/proxy-gemini');
+      setApiKey('');
       setLogLevel('WARN');
       localStorage.removeItem('smart_exam_model');
       localStorage.removeItem('smart_exam_use_proxy');
       localStorage.removeItem('smart_exam_proxy_url');
+      localStorage.removeItem('smart_exam_api_key');
       localStorage.removeItem('smart_exam_log_level');
       setSaveMessage('✓ Settings reset to defaults');
       setTimeout(() => setSaveMessage(''), 2000);
@@ -91,25 +100,47 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
               className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast & Efficient)</option>
+              <option value="gemini-2.5-pro-preview-05-06">Gemini 2.5 Pro (Most Capable)</option>
+              <option value="gemini-2.5-flash-preview-04-17">Gemini 2.5 Flash</option>
               <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-              <option value="gemini-2.0-pro-exp-02-05">Gemini 2.0 Pro (Advanced)</option>
               <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Experimental</option>
+              <option value="gemini-2.0-pro-exp-02-05">Gemini 2.0 Pro (Advanced)</option>
             </select>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
               Different models have different speeds and capabilities. Flash models are faster, Pro models are more accurate.
             </p>
           </div>
 
-          {/* Proxy Configuration */}
+          {/* API Key / Proxy Configuration */}
           <div className="border-b border-slate-200 dark:border-slate-700 pb-6">
             <div className="flex items-center gap-2 mb-4">
               <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Proxy Configuration</h3>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">API Configuration</h3>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-4">
+              {/* Direct API key (no proxy) */}
+              {!useProxy && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Gemini API Key <span className="text-slate-400 font-normal">(stored in browser only)</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="AIza..."
+                    className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                  />
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Get your free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Google AI Studio</a>. Saved to localStorage — never sent anywhere except directly to Google.
+                  </p>
+                </div>
+              )}
+
+              {/* Proxy toggle */}
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
@@ -117,8 +148,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                   onChange={(e) => setUseProxy(e.target.checked)}
                   className="w-4 h-4 text-indigo-600 rounded dark:bg-slate-700 dark:border-slate-600"
                 />
-                <span className="text-slate-900 dark:text-white">
-                  Use API Proxy (Recommended for Production)
+                <span className="text-slate-900 dark:text-white text-sm">
+                  Use Backend Proxy instead <span className="text-slate-500 dark:text-slate-400">(Vercel / self-hosted)</span>
                 </span>
               </label>
 
@@ -132,7 +163,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                 />
               )}
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                When enabled, API calls go through your backend proxy for better security. API key stays hidden from the browser.
+                {useProxy
+                  ? 'Proxy mode: API key lives on your server, not in the browser. See Help → API Key Setup.'
+                  : 'Direct mode: your API key is sent straight to Google from your browser. No backend needed.'}
               </p>
             </div>
           </div>
