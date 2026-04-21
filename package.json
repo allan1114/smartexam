@@ -1,7 +1,7 @@
 {
   "name": "smartexam-ai---your-personal-tutor",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "workspaces": [
     "packages/core",
@@ -23,4 +23,3 @@
     "deploy:pages:script": "bash scripts/deploy-github-pages.sh"
   }
 }
-
