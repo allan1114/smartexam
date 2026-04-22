@@ -100,7 +100,7 @@ export const parseDocumentToQuestions = async (
 
         OUTPUT SCHEMA: Return a JSON object with a key 'questions' containing the list of questions.`,
         responseMimeType: "application/json",
-        temperature: 0.3, // Lower temperature to preserve original text and minimize paraphrasing
+        temperature: 0.5,
         seed: randomSeed,
         responseSchema: {
           type: Type.OBJECT,
