@@ -171,6 +171,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
               className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast & Efficient)</option>
+              <option value="gemini-3-pro-preview">Gemini 3 Pro (Complex Reasoning)</option>
+              <option value="gemma-4-31b-it">Gemma 4 31B (Cost-effective Backup)</option>
               <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
               <option value="gemini-2.0-pro-exp-02-05">Gemini 2.0 Pro (Advanced)</option>
               <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Experimental</option>
