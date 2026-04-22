@@ -139,17 +139,22 @@ export const parseDocumentToQuestions = async (
         systemInstruction: `You are a professional exam creator.
         TASK: Extract exactly ${count} high-quality questions from the provided document.${rangeText}
 
+        CRITICAL - PRESERVE ORIGINAL TEXT:
+        - Extract questions EXACTLY as they appear in the source document. DO NOT rephrase, reword, or modify the question text.
+        - Extract answer options EXACTLY as they appear. DO NOT create synonyms or paraphrase options.
+        - Only adjust wording for grammatical clarity if absolutely necessary, and only if it preserves the original meaning.
+
         STRICT RANDOMIZATION RULES:
         1. STRIDE SAMPLING: Divide the document into ${count} roughly equal conceptual segments. Extract at least one unique question from each segment to ensure 100% coverage.
         2. RANDOM ANCHOR: Use the seed ${randomSeed} to determine your starting perspective. Do NOT prioritize the beginning of the document or "obvious" headers.
         3. DIVERSITY: Avoid repetitive patterns. If a topic was covered in one question, move to a different sub-topic for the next.
-        4. VERBATIM GROUNDING: Provide a 'sourceQuote' (verbatim excerpt) for every correct answer.
+        4. VERBATIM GROUNDING: Provide a 'sourceQuote' (verbatim excerpt) that directly supports both the question and correct answer.
         5. FORMAT: Use ${answerFormat}.
         6. NO REPETITION: Ensure every question is distinct and covers a different part of the text.
 
         OUTPUT SCHEMA: Return a JSON object with a key 'questions' containing the list of questions.`,
         responseMimeType: "application/json",
-        temperature: 0.85,
+        temperature: 0.3,
         seed: randomSeed,
         responseSchema: {
           type: Type.OBJECT,
