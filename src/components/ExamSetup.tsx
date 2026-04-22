@@ -89,8 +89,8 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart }) => {
         {/* Model Selection */}
         <div>
           <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">AI Engine</label>
-          <div className="grid grid-cols-2 gap-3">
-            <button 
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <button
               type="button"
               onClick={() => setSelectedModel('gemini-3-flash-preview')}
               className={`p-3 rounded-xl border-2 transition-all flex flex-col text-left ${selectedModel === 'gemini-3-flash-preview' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-100 dark:border-slate-700 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600'}`}
@@ -98,13 +98,21 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart }) => {
               <span className="font-bold text-xs">Gemini 3 Flash</span>
               <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-1">Recommended for speed.</span>
             </button>
-            <button 
+            <button
               type="button"
               onClick={() => setSelectedModel('gemini-3-pro-preview')}
               className={`p-3 rounded-xl border-2 transition-all flex flex-col text-left ${selectedModel === 'gemini-3-pro-preview' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-100 dark:border-slate-700 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600'}`}
             >
               <span className="font-bold text-xs">Gemini 3 Pro</span>
               <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-1">Best for complex reasoning.</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedModel('gemma-4-31b-it')}
+              className={`p-3 rounded-xl border-2 transition-all flex flex-col text-left ${selectedModel === 'gemma-4-31b-it' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-100 dark:border-slate-700 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600'}`}
+            >
+              <span className="font-bold text-xs">Gemma 4 31B</span>
+              <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-1">Cost-effective backup option.</span>
             </button>
           </div>
         </div>
