@@ -7,7 +7,8 @@ import {
   saveExamSession,
   generateDocumentHash,
   loadSessionForRetake,
-  createRetakeSession
+  createRetakeSession,
+  loadExamSession
 } from './utils/examStorage';
 import {
   updatePerformanceProfile,
@@ -182,12 +183,6 @@ const App: React.FC = () => {
     setCurrentState(AppState.RESULTS);
   };
 
-  const handleRetake = useCallback(() => {
-    setResults(null);
-    setCurrentState(AppState.EXAM);
-    setIsRetaking(false);
-  }, []);
-
   const handleRetakeWithFreshShuffles = useCallback(async (sessionId: string) => {
     setCurrentState(AppState.LOADING);
     setError(null);
@@ -316,6 +311,17 @@ const App: React.FC = () => {
   const viewHistoryResult = useCallback((result: ExamResult) => {
     setResults(result);
     setQuestions(result.questions);
+
+    // Restore session-related state so retake buttons work from history view
+    if (result.examSessionId) {
+      const session = loadExamSession(result.examSessionId);
+      if (session) {
+        setCurrentExamSessionId(result.examSessionId);
+        if (session.examConfig) setConfig(session.examConfig);
+        if (session.documentHash) setDocumentHash(session.documentHash);
+      }
+    }
+
     setCurrentState(AppState.RESULTS);
   }, []);
 
@@ -388,9 +394,8 @@ const App: React.FC = () => {
             result={results}
             questions={questions}
             onRestart={reset}
-            onRetake={handleRetake}
             onRetakeWithFreshShuffles={results.examSessionId ? () => handleRetakeWithFreshShuffles(results.examSessionId!) : undefined}
-            onSmartRetake={results.examSessionId ? () => handleSmartRetake(results.examSessionId!) : undefined}
+            onSmartRetake={results.examSessionId && documentHash ? () => handleSmartRetake(results.examSessionId!) : undefined}
           />
         )}
       </main>

@@ -1,7 +1,7 @@
 
 import { Type, GenerateContentResponse } from "@google/genai";
 import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis } from "../types";
-import { cleanJsonResponse, shuffleArray } from "../utils/fileProcessor";
+import { cleanJsonResponse } from "../utils/fileProcessor";
 import { ApiError, isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
 
@@ -136,25 +136,45 @@ export const parseDocumentToQuestions = async (
         ]
       },
       {
-        systemInstruction: `You are a professional exam creator.
-        TASK: Extract exactly ${count} high-quality questions from the provided document.${rangeText}
+        systemInstruction: `You are a professional exam compiler. Your job is to FAITHFULLY transcribe questions from the source document — never to invent, rephrase, or improve them.
 
-        CRITICAL - PRESERVE ORIGINAL TEXT:
-        - Extract questions EXACTLY as they appear in the source document. DO NOT rephrase, reword, or modify the question text.
-        - Extract answer options EXACTLY as they appear. DO NOT create synonyms or paraphrase options.
-        - Only adjust wording for grammatical clarity if absolutely necessary, and only if it preserves the original meaning.
+        TASK: Produce exactly ${count} questions from the provided document.${rangeText}
 
-        STRICT RANDOMIZATION RULES:
-        1. STRIDE SAMPLING: Divide the document into ${count} roughly equal conceptual segments. Extract at least one unique question from each segment to ensure 100% coverage.
-        2. RANDOM ANCHOR: Use the seed ${randomSeed} to determine your starting perspective. Do NOT prioritize the beginning of the document or "obvious" headers.
-        3. DIVERSITY: Avoid repetitive patterns. If a topic was covered in one question, move to a different sub-topic for the next.
-        4. VERBATIM GROUNDING: Provide a 'sourceQuote' (verbatim excerpt) that directly supports both the question and correct answer.
-        5. FORMAT: Use ${answerFormat}.
-        6. NO REPETITION: Ensure every question is distinct and covers a different part of the text.
+        ============================================================
+        ABSOLUTE RULE — VERBATIM TRANSCRIPTION (HIGHEST PRIORITY)
+        ============================================================
+        First, determine which CASE the document falls into:
 
-        OUTPUT SCHEMA: Return a JSON object with a key 'questions' containing the list of questions.`,
+        CASE A — The document ALREADY CONTAINS exam questions (numbered items, "Q1", "1.", multiple-choice options A/B/C/D, true/false, etc.):
+        ▸ You MUST copy the question text CHARACTER-FOR-CHARACTER from the document. Do not paraphrase, reword, summarize, simplify, fix typos, translate, or "improve" anything.
+        ▸ You MUST copy each option CHARACTER-FOR-CHARACTER. Preserve exact wording, punctuation, capitalization, numbers, units, and ordering.
+        ▸ You MUST copy the correct answer EXACTLY as it appears in the document (look for an answer key, answer line, bolded option, or marked answer). If the document does not indicate the correct answer, choose the option whose text matches the document most accurately and put that EXACT option text in 'correctAnswer'.
+        ▸ Do NOT invent additional options. If the source has 3 options, return 3. If 5, return 5.
+        ▸ Treat Markdown syntax (**, *, _, #, \`, lists) as PLAIN TEXT to be ignored — extract the underlying text content, not the markup. Do NOT render the markdown as HTML; just strip the markdown syntax characters and use the raw text.
+        ▸ The 'correctAnswer' field MUST be one of the strings inside the 'options' array — copy/paste exactly.
+
+        CASE B — The document is STUDY MATERIAL (notes, textbook, article, slides) without pre-written questions:
+        ▸ Generate questions strictly grounded in the document's text.
+        ▸ Each option must reflect content actually present in the document; do not fabricate facts.
+        ▸ The 'correctAnswer' must be the verbatim text of one of the 'options'.
+
+        ============================================================
+        SAMPLING & QUALITY RULES
+        ============================================================
+        1. COVERAGE: Divide the document into ${count} roughly equal segments and select one question per segment to ensure full coverage. Use seed ${randomSeed} as the random anchor.
+        2. NO DUPLICATION: Each question must be distinct and cover a different part of the document.
+        3. SOURCE QUOTE: For every question, provide a 'sourceQuote' — a verbatim excerpt (10-40 words) from the document that directly justifies the correct answer. Copy it character-for-character.
+        4. ANSWER FORMAT: Follow ${answerFormat}.
+        5. EXPLANATION: Keep the explanation concise (1-3 sentences) and grounded in the sourceQuote.
+
+        ============================================================
+        OUTPUT
+        ============================================================
+        Return a JSON object with key 'questions' containing the list of questions.
+        Each question must have: id, question, options, correctAnswer, explanation, sourceQuote, topic.
+        The 'correctAnswer' string MUST match one of the 'options' strings exactly (character-for-character).`,
         responseMimeType: "application/json",
-        temperature: 0.5,
+        temperature: 0.3,
         seed: randomSeed,
         responseSchema: {
           type: Type.OBJECT,
@@ -204,7 +224,7 @@ export const parseDocumentToQuestions = async (
     
     if (questions.length === 0) throw new Error("NO_QUESTIONS: No questions were extracted.");
 
-    // Secondary layer of randomization: Shuffle options and map correct answers
+    // Preserve original options/order from AI (verbatim). Display-time shuffling is handled by optionShuffler.
     return questions
       .filter((q: unknown): q is Question => {
         return (
@@ -219,15 +239,12 @@ export const parseDocumentToQuestions = async (
       .map((q: Question) => {
         const cleanOption = (t: string) => String(t).replace(/^[A-E][).]\s*/i, '').trim();
         const normalizedCorrect = cleanOption(q.correctAnswer);
-        const shuffledOptions = shuffleArray(q.options);
-
-        const matchingOption = shuffledOptions.find(
+        const matchingOption = q.options.find(
           (opt: string) => cleanOption(opt).toLowerCase() === normalizedCorrect.toLowerCase()
         );
 
         return {
           ...q,
-          options: shuffledOptions,
           correctAnswer: matchingOption || q.correctAnswer
         };
       });

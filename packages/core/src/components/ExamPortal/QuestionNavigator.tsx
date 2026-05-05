@@ -7,6 +7,7 @@ interface QuestionNavigatorProps {
   onSelectQuestion: (index: number) => void;
   userAnswers: Record<number, string>;
   config: ExamConfig;
+  flaggedIds?: Set<number>;
 }
 
 const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
@@ -15,6 +16,7 @@ const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
   onSelectQuestion,
   userAnswers,
   config,
+  flaggedIds,
 }) => {
   const isMock = config.mode === 'MOCK';
 
@@ -26,12 +28,14 @@ const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
         const isWrong = !isMock && ans && ans.trim().toLowerCase() !== q.correctAnswer.trim().toLowerCase();
         const isAnswered = !!ans;
         const isCurrent = idx === currentIndex;
+        const isFlagged = !!flaggedIds?.has(q.id);
 
         return (
           <button
             key={q.id}
             onClick={() => onSelectQuestion(idx)}
-            className={`w-8 h-8 rounded-lg text-xs font-black transition-all ${
+            title={isFlagged ? 'Flagged for review' : undefined}
+            className={`relative w-8 h-8 rounded-lg text-xs font-black transition-all ${
               isCurrent
                 ? 'bg-indigo-600 text-white ring-2 ring-indigo-400'
                 : isCorrect
@@ -44,6 +48,12 @@ const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
             }`}
           >
             {idx + 1}
+            {isFlagged && (
+              <span
+                aria-hidden="true"
+                className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-800"
+              />
+            )}
           </button>
         );
       })}
