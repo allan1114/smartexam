@@ -14,6 +14,7 @@ interface ExamPortalProps {
 const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
+  const [flaggedIds, setFlaggedIds] = useState<Set<number>>(new Set());
   const [timeLeft, setTimeLeft] = useState(config.mode === 'MOCK' ? config.durationMinutes * 60 : 0);
   const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false);
   const [isAutoSubmitting, setIsAutoSubmitting] = useState(false);
@@ -26,6 +27,17 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
   const answeredCount = Object.keys(userAnswers).length;
   const progress = (answeredCount / questions.length) * 100;
   const isCritical = timeLeft > 0 && timeLeft < 300;
+  const isFlagged = currentQuestion ? flaggedIds.has(currentQuestion.id) : false;
+
+  const toggleFlag = useCallback(() => {
+    if (!currentQuestion) return;
+    setFlaggedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(currentQuestion.id)) next.delete(currentQuestion.id);
+      else next.add(currentQuestion.id);
+      return next;
+    });
+  }, [currentQuestion]);
 
   const handleFinalSubmit = useCallback(() => {
     const finalAnswers: UserAnswer[] = questions.map(q => {
@@ -77,7 +89,25 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
             <p className="font-black text-slate-900 dark:text-white text-lg">Question {currentIndex + 1} of {questions.length}</p>
           </div>
 
-          <TimerDisplay timeLeft={timeLeft} isMock={isMock} isWarning={isCritical} />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={toggleFlag}
+              aria-pressed={isFlagged}
+              title={isFlagged ? 'Unflag this question' : 'Flag this question for review'}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl border-2 text-xs font-black uppercase tracking-widest transition-all ${
+                isFlagged
+                  ? 'bg-amber-500 border-amber-500 text-white shadow-md'
+                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:border-amber-400 hover:text-amber-500'
+              }`}
+            >
+              <svg className="w-4 h-4" fill={isFlagged ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 21V5a2 2 0 012-2h11l-2 5 2 5H7" />
+              </svg>
+              {isFlagged ? 'Flagged' : 'Flag'}
+            </button>
+            <TimerDisplay timeLeft={timeLeft} isMock={isMock} isWarning={isCritical} />
+          </div>
         </div>
 
         <QuestionNavigator
@@ -86,6 +116,7 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
           onSelectQuestion={setCurrentIndex}
           userAnswers={userAnswers}
           config={config}
+          flaggedIds={flaggedIds}
         />
 
         <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
@@ -163,9 +194,14 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
               </svg>
             </div>
             <h4 className="text-3xl font-black mb-4 text-slate-900 dark:text-white">Submit Session?</h4>
-            <p className="text-slate-500 dark:text-slate-400 mb-10 font-medium">
+            <p className="text-slate-500 dark:text-slate-400 mb-4 font-medium">
               You have answered {answeredCount} out of {questions.length} questions. Are you ready to view your performance analysis?
             </p>
+            {flaggedIds.size > 0 && (
+              <p className="text-amber-600 dark:text-amber-400 mb-6 font-bold text-sm">
+                ⚑ You have {flaggedIds.size} flagged question{flaggedIds.size === 1 ? '' : 's'} marked for review.
+              </p>
+            )}
             <div className="space-y-4">
               <button onClick={handleFinalSubmit} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black shadow-xl hover:bg-indigo-700 active:scale-95 transition-all">YES, SHOW RESULTS</button>
               <button onClick={() => setIsSubmitConfirmOpen(false)} className="w-full py-4 font-black text-slate-400 hover:text-slate-600 transition-colors">CONTINUE REVIEWING</button>
