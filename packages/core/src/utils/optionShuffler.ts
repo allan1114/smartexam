@@ -14,12 +14,29 @@ const shuffleInPlace = <T>(array: T[]): T[] => {
 };
 
 /**
+ * Create an identity mapping (no shuffle) - options stay in original order
+ */
+const createIdentityMapping = (questionId: number, originalOptions: string[]): OptionMapping => {
+  const indexMap: Record<number, number> = {};
+  originalOptions.forEach((_, idx) => {
+    indexMap[idx] = idx;
+  });
+  return { questionId, indexMap };
+};
+
+/**
  * Create option mapping for a question (shuffle tracking without modifying original)
+ * @param shuffleOptions - if false, options remain in original order (identity mapping)
  */
 export const createOptionMapping = (
   questionId: number,
-  originalOptions: string[]
+  originalOptions: string[],
+  shuffleOptions: boolean = true
 ): OptionMapping => {
+  if (!shuffleOptions) {
+    return createIdentityMapping(questionId, originalOptions);
+  }
+
   const shuffledOptions = shuffleInPlace(originalOptions);
 
   // Create index mapping: displayIndex -> originalIndex
@@ -92,17 +109,18 @@ export const validateAnswer = (
 };
 
 /**
- * Get all display questions for an exam with fresh shuffles
- * This generates new shuffles each time - for same questions, use stored mappings instead
+ * Get all display questions for an exam
+ * @param shuffleOptions - if true (RANDOM mode), shuffle A/B/C/D order; if false (SEQUENTIAL mode), keep original order
  */
 export const getDisplayQuestions = (
-  originalQuestions: OriginalQuestion[]
+  originalQuestions: OriginalQuestion[],
+  shuffleOptions: boolean = true
 ): { questions: Question[]; mappings: OptionMapping[] } => {
   const mappings: OptionMapping[] = [];
   const questions: Question[] = [];
 
   originalQuestions.forEach(original => {
-    const mapping = createOptionMapping(original.id, original.options);
+    const mapping = createOptionMapping(original.id, original.options, shuffleOptions);
     mappings.push(mapping);
     questions.push(getDisplayQuestion(original, mapping));
   });

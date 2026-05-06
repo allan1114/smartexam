@@ -116,7 +116,8 @@ export const parseDocumentToQuestions = async (
   count: number = 10,
   modelName: string = 'gemini-3-flash-preview',
   answerFormat: AnswerFormat = 'AUTO',
-  contentRange?: string
+  contentRange?: string,
+  documentHash?: string
 ): Promise<Question[]> => {
   const finalModelName = getModelName(modelName);
 
@@ -124,7 +125,10 @@ export const parseDocumentToQuestions = async (
 
   const MAX_TEXT_LENGTH = 100000;
   const textContext = source.text ? (source.text.length > MAX_TEXT_LENGTH ? source.text.substring(0, MAX_TEXT_LENGTH) + "... [Truncated]" : source.text) : "";
-  const randomSeed = Math.floor(Math.random() * 1000000);
+  // Use document hash as deterministic seed when available, otherwise fall back to random
+  const randomSeed = documentHash
+    ? Math.abs(parseInt(documentHash, 36)) % 1000000
+    : Math.floor(Math.random() * 1000000);
 
   const apiCall = async () => {
     return await callGeminiViaProxy(
