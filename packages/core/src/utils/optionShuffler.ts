@@ -140,12 +140,12 @@ export const applyStoredMappings = (
     const mapping = storedMappings.find(m => m.questionId === original.id);
     if (!mapping) {
       logger.warn(
-        `No mapping found for question ${original.id}`,
+        `No mapping found for question ${original.id} — using identity mapping as safe fallback`,
         'optionShuffler.applyStoredMappings'
       );
-      // Fallback: return original with shuffled options
-      const newMapping = createOptionMapping(original.id, original.options);
-      return getDisplayQuestion(original, newMapping);
+      // Fallback: use identity mapping (no shuffle) so options stay in original order
+      const safeMapping = createOptionMapping(original.id, original.options, false);
+      return getDisplayQuestion(original, safeMapping);
     }
     return getDisplayQuestion(original, mapping);
   });

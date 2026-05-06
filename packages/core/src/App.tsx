@@ -60,11 +60,21 @@ const App: React.FC = () => {
       const savedHistory = localStorage.getItem('smart_exam_history');
       if (savedHistory) {
         const parsed = JSON.parse(savedHistory);
-        // Clean up any null/corrupt entries from history
-        setHistory(Array.isArray(parsed) ? parsed.filter(item => item !== null && typeof item === 'object' && item.id) : []);
+        if (Array.isArray(parsed)) {
+          const validItems = parsed.filter(item => item !== null && typeof item === 'object' && item.id);
+          const corruptCount = parsed.length - validItems.length;
+          if (corruptCount > 0) {
+            logger.warn(`Filtered ${corruptCount} corrupt entries from exam history`, "App.initialization");
+          }
+          setHistory(validItems);
+        } else {
+          logger.warn("Exam history in localStorage is not an array, resetting", "App.initialization");
+          setHistory([]);
+        }
       }
     } catch (e) {
-      logger.error("Failed to load exam history from localStorage", "App.initialization", e);
+      logger.error("Exam history JSON is corrupt, resetting to empty", "App.initialization", e);
+      setHistory([]);
     }
   }, []);
 

@@ -64,12 +64,15 @@ export const saveExamSession = (
     // Update session index
     const index = getSessionIndex();
     index.push(sessionId);
-    // Keep only most recent MAX_SESSIONS
+    // Keep only most recent MAX_SESSIONS; warn before evicting
     if (index.length > MAX_SESSIONS) {
       const toDelete = index.shift();
       if (toDelete) {
+        logger.warn(`Session limit (${MAX_SESSIONS}) reached — evicting oldest session: ${toDelete}`, 'examStorage.saveExamSession');
         localStorage.removeItem(STORAGE_KEY_PREFIX + toDelete);
       }
+    } else if (index.length >= MAX_SESSIONS - 2) {
+      logger.warn(`Approaching session limit: ${index.length}/${MAX_SESSIONS} sessions stored`, 'examStorage.saveExamSession');
     }
     localStorage.setItem(STORAGE_INDEX_KEY, JSON.stringify(index));
 
@@ -254,6 +257,7 @@ export const createRetakeSession = (
     if (index.length > MAX_SESSIONS) {
       const toDelete = index.shift();
       if (toDelete) {
+        logger.warn(`Session limit (${MAX_SESSIONS}) reached — evicting oldest session: ${toDelete}`, 'examStorage.createRetakeSession');
         localStorage.removeItem(STORAGE_KEY_PREFIX + toDelete);
       }
     }
