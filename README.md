@@ -11,7 +11,7 @@
 
 **AI 驅動的考試練習與學習平台**
 
-[線上演示](https://allan1114.github.io/smartexam/) • [報告錯誤](../../issues) • [請求功能](../../issues) • [英文版本](README.en.md)
+[線上演示](https://allan1114.github.io/smartexam/) • [報告錯誤](../../issues) • [請求功能](../../issues) • [English version](README.en.md)
 
 </div>
 
