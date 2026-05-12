@@ -60,11 +60,21 @@ const App: React.FC = () => {
       const savedHistory = localStorage.getItem('smart_exam_history');
       if (savedHistory) {
         const parsed = JSON.parse(savedHistory);
-        // Clean up any null/corrupt entries from history
-        setHistory(Array.isArray(parsed) ? parsed.filter(item => item !== null && typeof item === 'object' && item.id) : []);
+        if (Array.isArray(parsed)) {
+          const validItems = parsed.filter(item => item !== null && typeof item === 'object' && item.id);
+          const corruptCount = parsed.length - validItems.length;
+          if (corruptCount > 0) {
+            logger.warn(`Filtered ${corruptCount} corrupt entries from exam history`, "App.initialization");
+          }
+          setHistory(validItems);
+        } else {
+          logger.warn("Exam history in localStorage is not an array, resetting", "App.initialization");
+          setHistory([]);
+        }
       }
     } catch (e) {
-      logger.error("Failed to load exam history from localStorage", "App.initialization", e);
+      logger.error("Exam history JSON is corrupt, resetting to empty", "App.initialization", e);
+      setHistory([]);
     }
   }, []);
 
@@ -104,28 +114,30 @@ const App: React.FC = () => {
     setIsRetaking(false);
 
     try {
+      // Generate document hash before calling Gemini for deterministic seeding
+      const docHash = generateDocumentHash(docSource.text, docSource.fileData);
+      setDocumentHash(docHash);
+
       const generatedQuestions = await parseDocumentToQuestions(
         docSource,
         examConfig.totalQuestions,
         examConfig.model,
         examConfig.answerFormat,
-        examConfig.contentRange
+        examConfig.contentRange,
+        docHash
       );
 
       if (!generatedQuestions || generatedQuestions.length === 0) {
         throw new Error("NO_QUESTIONS_FOUND: AI failed to extract any valid questions from the document.");
       }
 
-      // Generate document hash for integrity tracking
-      const docHash = generateDocumentHash(docSource.text, docSource.fileData);
-      setDocumentHash(docHash);
-
       // Save original questions to localStorage (Level 1 - preserves 100% integrity)
       const sessionId = saveExamSession(generatedQuestions, docHash, examConfig);
       setCurrentExamSessionId(sessionId);
 
-      // Create option shuffles for display (Level 2 - applies shuffling at display layer)
-      const { questions: displayQuestions } = getDisplayQuestions(generatedQuestions as any);
+      // SEQUENTIAL mode: options stay in original order; RANDOM mode: options shuffled
+      const shouldShuffleOptions = examConfig.questionOrder === 'RANDOM';
+      const { questions: displayQuestions } = getDisplayQuestions(generatedQuestions as any, shouldShuffleOptions);
 
       // Apply question order (RANDOM or SEQUENTIAL) to display questions
       const finalQuestions = examConfig.questionOrder === 'RANDOM'
@@ -194,8 +206,9 @@ const App: React.FC = () => {
         throw new Error("SESSION_NOT_FOUND: Could not load the saved exam session for retake.");
       }
 
-      // Create fresh option shuffles (Level 2)
-      const { questions: displayQuestions } = getDisplayQuestions(originalQuestions);
+      // SEQUENTIAL: keep option order; RANDOM: shuffle options
+      const shouldShuffleOptions = config?.questionOrder === 'RANDOM';
+      const { questions: displayQuestions } = getDisplayQuestions(originalQuestions, shouldShuffleOptions);
 
       // Apply question order from config
       const finalQuestions = config?.questionOrder === 'RANDOM'
@@ -250,8 +263,9 @@ const App: React.FC = () => {
         config?.totalQuestions
       );
 
-      // Create fresh option shuffles
-      const { questions: displayQuestions } = getDisplayQuestions(smartOrderedQuestions);
+      // SEQUENTIAL: keep option order; RANDOM: shuffle options
+      const shouldShuffleOptions = config?.questionOrder === 'RANDOM';
+      const { questions: displayQuestions } = getDisplayQuestions(smartOrderedQuestions, shouldShuffleOptions);
 
       // Create retake session
       const retakeSessionId = createRetakeSession(sessionId, smartOrderedQuestions, config || undefined);

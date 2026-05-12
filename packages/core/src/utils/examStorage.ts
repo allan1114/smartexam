@@ -6,17 +6,15 @@ const STORAGE_INDEX_KEY = 'smart_exam_session_index';
 const MAX_SESSIONS = 20; // Limit stored sessions to manage localStorage
 
 /**
- * Generate hash from document content or file data for integrity tracking
+ * Generate hash from document content or file data for integrity tracking.
+ * Uses djb2 algorithm over full content for better collision resistance.
  */
 export const generateDocumentHash = (text?: string, fileData?: { data: string; mimeType: string }): string => {
   try {
     const content = text || fileData?.data || '';
-    // Simple hash: use first 1000 chars + length
-    const key = content.substring(0, 1000) + content.length;
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) {
-      const char = key.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+    let hash = 5381;
+    for (let i = 0; i < content.length; i++) {
+      hash = ((hash << 5) + hash) ^ content.charCodeAt(i);
       hash = hash & hash; // Convert to 32bit integer
     }
     return Math.abs(hash).toString(36);
@@ -66,12 +64,15 @@ export const saveExamSession = (
     // Update session index
     const index = getSessionIndex();
     index.push(sessionId);
-    // Keep only most recent MAX_SESSIONS
+    // Keep only most recent MAX_SESSIONS; warn before evicting
     if (index.length > MAX_SESSIONS) {
       const toDelete = index.shift();
       if (toDelete) {
+        logger.warn(`Session limit (${MAX_SESSIONS}) reached — evicting oldest session: ${toDelete}`, 'examStorage.saveExamSession');
         localStorage.removeItem(STORAGE_KEY_PREFIX + toDelete);
       }
+    } else if (index.length >= MAX_SESSIONS - 2) {
+      logger.warn(`Approaching session limit: ${index.length}/${MAX_SESSIONS} sessions stored`, 'examStorage.saveExamSession');
     }
     localStorage.setItem(STORAGE_INDEX_KEY, JSON.stringify(index));
 
@@ -256,6 +257,7 @@ export const createRetakeSession = (
     if (index.length > MAX_SESSIONS) {
       const toDelete = index.shift();
       if (toDelete) {
+        logger.warn(`Session limit (${MAX_SESSIONS}) reached — evicting oldest session: ${toDelete}`, 'examStorage.createRetakeSession');
         localStorage.removeItem(STORAGE_KEY_PREFIX + toDelete);
       }
     }

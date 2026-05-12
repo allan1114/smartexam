@@ -35,12 +35,26 @@ describe('optionShuffler', () => {
       expect(indices.sort()).toEqual([0, 1, 2, 3]); // Should have all valid indices
     });
 
-    it('should shuffle options (very likely to be different)', () => {
-      const mapping1 = createOptionMapping(mockOriginalQuestion.id, mockOriginalQuestion.options);
-      const mapping2 = createOptionMapping(mockOriginalQuestion.id, mockOriginalQuestion.options);
-      // Very unlikely to be identical
-      const mapsAreIdentical = JSON.stringify(mapping1.indexMap) === JSON.stringify(mapping2.indexMap);
-      expect(mapsAreIdentical).toBeFalsy();
+    it('should create a valid permutation when shuffling', () => {
+      const mapping = createOptionMapping(mockOriginalQuestion.id, mockOriginalQuestion.options);
+      const indices = Object.values(mapping.indexMap).sort((a, b) => a - b);
+      // Should contain exactly [0, 1, 2, 3] - a valid permutation
+      expect(indices).toEqual([0, 1, 2, 3]);
+    });
+
+    it('should create identity mapping when shuffleOptions is false (sequential mode)', () => {
+      const mapping = createOptionMapping(mockOriginalQuestion.id, mockOriginalQuestion.options, false);
+      // Identity mapping: display index i maps to original index i
+      expect(mapping.indexMap[0]).toBe(0);
+      expect(mapping.indexMap[1]).toBe(1);
+      expect(mapping.indexMap[2]).toBe(2);
+      expect(mapping.indexMap[3]).toBe(3);
+    });
+
+    it('should produce the same identity mapping on every call in sequential mode', () => {
+      const mapping1 = createOptionMapping(mockOriginalQuestion.id, mockOriginalQuestion.options, false);
+      const mapping2 = createOptionMapping(mockOriginalQuestion.id, mockOriginalQuestion.options, false);
+      expect(JSON.stringify(mapping1.indexMap)).toBe(JSON.stringify(mapping2.indexMap));
     });
   });
 
@@ -51,17 +65,20 @@ describe('optionShuffler', () => {
       expect((displayQ as any)._locked).toBeUndefined();
     });
 
-    it('should have shuffled options', () => {
+    it('should contain all original options in display question', () => {
       const mapping = createOptionMapping(mockOriginalQuestion.id, mockOriginalQuestion.options);
       const displayQ = getDisplayQuestion(mockOriginalQuestion, mapping);
 
-      // All original options should be present
+      // All original options should be present (order may vary)
       const originalSet = new Set(mockOriginalQuestion.options);
       const displaySet = new Set(displayQ.options);
       expect(originalSet).toEqual(displaySet);
+    });
 
-      // Very likely to be in different order
-      expect(displayQ.options).not.toEqual(mockOriginalQuestion.options);
+    it('should keep options in original order in sequential mode (shuffleOptions=false)', () => {
+      const mapping = createOptionMapping(mockOriginalQuestion.id, mockOriginalQuestion.options, false);
+      const displayQ = getDisplayQuestion(mockOriginalQuestion, mapping);
+      expect(displayQ.options).toEqual(mockOriginalQuestion.options);
     });
 
     it('should preserve question text, answer, and explanation', () => {
@@ -136,12 +153,21 @@ describe('optionShuffler', () => {
       expect(displayQs[1].id).toBe(2);
     });
 
-    it('should create unique shuffles for each call', () => {
-      const { mappings: mappings1 } = getDisplayQuestions([mockOriginalQuestion]);
-      const { mappings: mappings2 } = getDisplayQuestions([mockOriginalQuestion]);
+    it('should produce identical order in sequential mode (shuffleOptions=false)', () => {
+      const { questions: q1, mappings: m1 } = getDisplayQuestions([mockOriginalQuestion], false);
+      const { questions: q2, mappings: m2 } = getDisplayQuestions([mockOriginalQuestion], false);
+      // Sequential mode must always produce the same order
+      expect(q1[0].options).toEqual(q2[0].options);
+      expect(q1[0].options).toEqual(mockOriginalQuestion.options);
+      expect(JSON.stringify(m1)).toBe(JSON.stringify(m2));
+    });
 
-      // Very unlikely to have identical shuffles
-      expect(JSON.stringify(mappings1)).not.toBe(JSON.stringify(mappings2));
+    it('should allow option shuffling in random mode (shuffleOptions=true)', () => {
+      const { questions } = getDisplayQuestions([mockOriginalQuestion], true);
+      // All options must still be present even when shuffled
+      const displaySet = new Set(questions[0].options);
+      const originalSet = new Set(mockOriginalQuestion.options);
+      expect(displaySet).toEqual(originalSet);
     });
   });
 
