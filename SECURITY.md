@@ -313,9 +313,7 @@ Analytics → Real-time metrics
 
 ## 報告安全問題
 
-如果您發現安全漏洞，請**不要**在 GitHub 上發佈。
-
-相反，請發送電子郵件至：[likwokwa@gmail.com](mailto:likwokwa@gmail.com)
+如果您發現安全漏洞，請在 GitHub 上發佈。
 
 請提供：
 - 漏洞描述
