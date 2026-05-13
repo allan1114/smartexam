@@ -4,8 +4,10 @@ import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis
 import { cleanJsonResponse } from "../utils/fileProcessor";
 import { ApiError, isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
+import { getProviderForModel } from "../constants/models";
 
 const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const MINIMAX_CHAT_URL = 'https://api.minimax.io/v1/chat/completions';
 
 const extractText = (data: any): string =>
   data?.candidates?.[0]?.content?.parts?.[0]?.text ?? data?.text ?? '';
@@ -76,6 +78,96 @@ const callGeminiViaProxy = async (
 };
 
 /**
+ * Convert Gemini-shape contents/config into OpenAI-style messages used by
+ * Minimax's OpenAI-compatible API.
+ */
+const buildOpenAIMessages = (contents: any, systemInstruction?: string): Array<{ role: string; content: string }> => {
+  const messages: Array<{ role: string; content: string }> = [];
+  if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
+
+  const collect = (parts: any[]): string =>
+    (parts || [])
+      .map(p => (typeof p?.text === 'string' ? p.text : ''))
+      .filter(Boolean)
+      .join('\n');
+
+  if (Array.isArray(contents)) {
+    contents.forEach((c: any) => {
+      const role = c?.role === 'model' ? 'assistant' : 'user';
+      messages.push({ role, content: collect(c?.parts || []) });
+    });
+  } else if (contents?.parts) {
+    messages.push({ role: 'user', content: collect(contents.parts) });
+  }
+  return messages;
+};
+
+/**
+ * Call MiniMax's OpenAI-compatible chat completion API.
+ * Uses a dedicated localStorage key so a Minimax key isn't sent to Google.
+ */
+const callMinimax = async (
+  model: string,
+  contents: any,
+  config?: any
+): Promise<{ text: string }> => {
+  const apiKey =
+    localStorage.getItem('smart_exam_minimax_api_key') ||
+    localStorage.getItem('smart_exam_api_key') ||
+    '';
+
+  if (!apiKey) {
+    throw new Error('NO_API_KEY: No Minimax API key configured. Click ⚙️ Settings → paste your Minimax API key → Save Settings. Get one at https://platform.minimax.io.');
+  }
+
+  const messages = buildOpenAIMessages(contents, config?.systemInstruction);
+  const body: any = {
+    model,
+    messages,
+    ...(config?.temperature !== undefined && { temperature: config.temperature }),
+    ...(config?.responseMimeType === 'application/json' && {
+      response_format: { type: 'json_object' },
+    }),
+  };
+
+  const resp = await fetch(MINIMAX_CHAT_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({} as any));
+    const msg = err?.error?.message || err?.base_resp?.status_msg || `${resp.status} ${resp.statusText}`;
+    throw new Error(`Minimax API Error: ${msg}`);
+  }
+
+  const data: any = await resp.json();
+  let text: string = data?.choices?.[0]?.message?.content || '';
+  // Minimax M-series may emit a <think>…</think> reasoning preamble; strip it.
+  text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  return { text };
+};
+
+/**
+ * Dispatch an AI call to the right provider based on the model id.
+ * Currently routes Minimax models to Minimax; everything else goes through
+ * the existing Gemini proxy/direct path.
+ */
+const callAIModel = async (
+  model: string,
+  contents: any,
+  config?: any
+): Promise<{ text: string }> => {
+  const provider = getProviderForModel(model);
+  if (provider === 'minimax') return callMinimax(model, contents, config);
+  return callGeminiViaProxy(model, contents, config);
+};
+
+/**
  * Get model name from localStorage first, then fallback to default
  */
 const getModelName = (defaultModel: string = 'gemini-3-flash-preview'): string => {
@@ -131,7 +223,7 @@ export const parseDocumentToQuestions = async (
     : Math.floor(Math.random() * 1000000);
 
   const apiCall = async () => {
-    return await callGeminiViaProxy(
+    return await callAIModel(
       finalModelName,
       {
         parts: [
@@ -278,7 +370,7 @@ export const refineMasteryInsight = async (
   const prompt = `Provide a detailed "Mastery Insight" for this exam question: "${question}". Correct answer: "${correctAnswer}". Explain the underlying concept deeply and why other options might be confusing.`;
 
   const apiCall = async () => {
-    return await callGeminiViaProxy(
+    return await callAIModel(
       finalModelName,
       { parts: [{ text: prompt }] },
       { temperature: 0.5 }
@@ -313,7 +405,7 @@ export const getChatbotResponse = async (
   ];
 
   const apiCall = async () => {
-    return await callGeminiViaProxy(
+    return await callAIModel(
       modelName,
       { parts: contents },
       {
@@ -342,7 +434,7 @@ export const generatePerformanceAnalysis = async (
   }));
 
   const apiCall = async () => {
-    return await callGeminiViaProxy(
+    return await callAIModel(
       modelName,
       {
         parts: [{ text: `Analyze this exam performance data and provide constructive feedback in a encouraging tone: ${JSON.stringify(summary)}` }]
