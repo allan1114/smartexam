@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { ExamConfig, ExamMode, QuestionOrder, AnswerFormat } from '../types';
+import { getModelsByProvider } from '../constants/models';
 
 interface ExamSetupProps {
   onStart: (config: ExamConfig) => void;
@@ -89,23 +90,29 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart }) => {
         {/* Model Selection */}
         <div>
           <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">AI Engine</label>
-          <div className="grid grid-cols-2 gap-3">
-            <button 
-              type="button"
-              onClick={() => setSelectedModel('gemini-3-flash-preview')}
-              className={`p-3 rounded-xl border-2 transition-all flex flex-col text-left ${selectedModel === 'gemini-3-flash-preview' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-100 dark:border-slate-700 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600'}`}
-            >
-              <span className="font-bold text-xs">Gemini 3 Flash</span>
-              <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-1">Recommended for speed.</span>
-            </button>
-            <button 
-              type="button"
-              onClick={() => setSelectedModel('gemini-3-pro-preview')}
-              className={`p-3 rounded-xl border-2 transition-all flex flex-col text-left ${selectedModel === 'gemini-3-pro-preview' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-100 dark:border-slate-700 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600'}`}
-            >
-              <span className="font-bold text-xs">Gemini 3 Pro</span>
-              <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-1">Best for complex reasoning.</span>
-            </button>
+          <div className="space-y-4">
+            {['google', 'minimax', 'anthropic', 'openai'].map(provider => {
+              const providerModels = getModelsByProvider(provider);
+              if (providerModels.length === 0) return null;
+              return (
+                <div key={provider}>
+                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2 capitalize">{provider}</p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {providerModels.map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setSelectedModel(m.id)}
+                        className={`p-2 rounded-lg border-2 transition-all flex flex-col text-left text-xs ${selectedModel === m.id ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-100 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600'}`}
+                      >
+                        <span className="font-bold">{m.name}</span>
+                        <span className="text-[8px] text-slate-500 dark:text-slate-400 mt-0.5">{m.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 

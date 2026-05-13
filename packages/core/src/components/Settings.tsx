@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AI_MODELS } from '../constants/models';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -99,12 +100,26 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
               onChange={(e) => setModel(e.target.value)}
               className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast & Efficient)</option>
-              <option value="gemini-2.5-pro-preview-05-06">Gemini 2.5 Pro (Most Capable)</option>
-              <option value="gemini-2.5-flash-preview-04-17">Gemini 2.5 Flash</option>
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-              <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Experimental</option>
-              <option value="gemini-2.0-pro-exp-02-05">Gemini 2.0 Pro (Advanced)</option>
+              <optgroup label="Google">
+                {AI_MODELS.filter(m => m.provider === 'google').map(m => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.description})</option>
+                ))}
+              </optgroup>
+              <optgroup label="Minimax">
+                {AI_MODELS.filter(m => m.provider === 'minimax').map(m => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.description})</option>
+                ))}
+              </optgroup>
+              <optgroup label="Anthropic">
+                {AI_MODELS.filter(m => m.provider === 'anthropic').map(m => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.description})</option>
+                ))}
+              </optgroup>
+              <optgroup label="OpenAI">
+                {AI_MODELS.filter(m => m.provider === 'openai').map(m => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.description})</option>
+                ))}
+              </optgroup>
             </select>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
               Different models have different speeds and capabilities. Flash models are faster, Pro models are more accurate.
