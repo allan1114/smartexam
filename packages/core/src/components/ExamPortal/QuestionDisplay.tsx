@@ -1,6 +1,5 @@
 import React from 'react';
 import { Question, ExamConfig } from '../../types';
-import { stripOptionLetterPrefix } from '../../utils/fileProcessor';
 
 interface QuestionDisplayProps {
   question: Question;
@@ -67,7 +66,7 @@ const QuestionDisplay: React.FC<QuestionDisplayProps> = ({
               }`}
             >
               <span className="inline-block mr-4 font-black">{letter}.</span>
-              {stripOptionLetterPrefix(option)}
+              {option}
             </button>
           );
         })}

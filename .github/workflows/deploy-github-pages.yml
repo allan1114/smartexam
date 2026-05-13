@@ -5,10 +5,10 @@ on:
     branches:
       - main
       - master
-  workflow_dispatch:
+  workflow_dispatch:  # 允許手動觸發
 
 permissions:
-  contents: write   # required to force-push the gh-pages branch
+  contents: read
   pages: write
   id-token: write
 
@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -48,19 +48,21 @@ jobs:
         env:
           VITE_USE_GEMINI_PROXY: true
 
-      - name: 🚀 Publish build to gh-pages branch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_SHA: ${{ github.sha }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          cd packages/web/dist
-          touch .nojekyll
-          git init -b gh-pages
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
-          git add -A
-          git commit -m "deploy: build from ${GH_SHA}"
-          git push --force origin gh-pages
+      - name: 📤 Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './packages/web/dist'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    steps:
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
