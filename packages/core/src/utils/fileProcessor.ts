@@ -83,54 +83,23 @@ export const shuffleArray = <T>(array: T[]): T[] => {
 };
 
 /**
- * Strips a leading option-letter label (e.g. "A.", "B)", "C:") from option text
- * for display only. The stored option string is preserved verbatim — this is
- * used at render time so a randomized A/B/C/D label is not duplicated when the
- * source document already embeds its own letter prefix.
- */
-export const stripOptionLetterPrefix = (option: string): string => {
-  if (!option) return option;
-  return option.replace(/^\s*[A-Ea-e]\s*[).:、\.]\s*/, '');
-};
-
-/**
- * Cleans JSON response from markdown code blocks, reasoning preambles, and
- * any prose that some models (e.g. MiniMax-M2.7) emit around the JSON.
- *
- * Strategy:
- *   1. Drop any <think>…</think> reasoning blocks.
- *   2. Strip a single set of leading/trailing ```json … ``` fences.
- *   3. If the string still doesn't start with `{` or `[`, extract the largest
- *      span from the first `{` (or `[`) to the last matching `}` (or `]`).
+ * Cleans JSON response from markdown code blocks
+ * @param text - Raw response text from API
+ * @returns string - Cleaned JSON string
  */
 export const cleanJsonResponse = (text: string): string => {
   if (!text) return '';
 
-  let cleaned = text.trim();
-
-  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-
-  cleaned = cleaned
-    .replace(/^```(?:json|JSON)?\s*\n?/i, '')
-    .replace(/\n?\s*```\s*$/i, '')
+  // Remove markdown code blocks if present
+  let cleaned = text
+    .replace(/^```json\s*/i, '')
+    .replace(/\s*```$/i, '')
     .trim();
 
-  if (!/^[\{\[]/.test(cleaned)) {
-    const firstBrace = cleaned.indexOf('{');
-    const firstBracket = cleaned.indexOf('[');
-    let start = -1;
-    let endChar = '';
-    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
-      start = firstBrace;
-      endChar = '}';
-    } else if (firstBracket !== -1) {
-      start = firstBracket;
-      endChar = ']';
-    }
-    if (start !== -1) {
-      const end = cleaned.lastIndexOf(endChar);
-      if (end > start) cleaned = cleaned.slice(start, end + 1).trim();
-    }
+  // If there's still markdown after cleaning, try a more aggressive approach
+  if (cleaned.includes('```')) {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) cleaned = match[0];
   }
 
   return cleaned;

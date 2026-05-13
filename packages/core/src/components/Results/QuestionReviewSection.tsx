@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import DOMPurify from 'dompurify';
 import { Question, ExamResult } from '../../types';
 import { refineMasteryInsight } from '../../services/geminiService';
-import { stripOptionLetterPrefix } from '../../utils/fileProcessor';
 
 interface QuestionReviewSectionProps {
   questions: Question[];
@@ -95,7 +94,7 @@ const QuestionReviewSection: React.FC<QuestionReviewSectionProps> = ({ questions
                           }`}
                         >
                           <span className="w-8 font-black">{String.fromCharCode(65 + oIdx)})</span>
-                          <span>{stripOptionLetterPrefix(opt)}</span>
+                          <span>{opt}</span>
                           {isCorrectChoice && <span className="ml-auto text-[10px] font-black">CORRECT</span>}
                         </div>
                       );
