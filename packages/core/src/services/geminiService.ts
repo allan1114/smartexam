@@ -145,17 +145,20 @@ export const parseDocumentToQuestions = async (
         TASK: Produce exactly ${count} questions from the provided document.${rangeText}
 
         ============================================================
-        ABSOLUTE RULE — VERBATIM TRANSCRIPTION (HIGHEST PRIORITY)
+        ABSOLUTE RULE — 100% VERBATIM TRANSCRIPTION (HIGHEST PRIORITY)
         ============================================================
+        The user's uploaded document is the SINGLE SOURCE OF TRUTH. You MUST NOT modify its content in any way. Specifically:
+        ▸ Do NOT paraphrase, reword, summarize, simplify, expand, translate, fix grammar, fix typos, normalize punctuation, change capitalization, or "improve" anything.
+        ▸ Do NOT strip, add, or reorder leading labels (e.g., "A.", "1)", "Q3:"). Preserve them exactly as written.
+        ▸ Do NOT alter Markdown markers, whitespace, units, numbers, or symbols. Keep characters byte-for-byte as they appear in the source text.
+        ▸ Do NOT invent additional options or answers. If the source has 3 options, return 3. If 5, return 5.
+        ▸ The 'correctAnswer' field MUST be a copy/paste of one of the 'options' strings — character-for-character identical.
+
         First, determine which CASE the document falls into:
 
         CASE A — The document ALREADY CONTAINS exam questions (numbered items, "Q1", "1.", multiple-choice options A/B/C/D, true/false, etc.):
-        ▸ You MUST copy the question text CHARACTER-FOR-CHARACTER from the document. Do not paraphrase, reword, summarize, simplify, fix typos, translate, or "improve" anything.
-        ▸ You MUST copy each option CHARACTER-FOR-CHARACTER. Preserve exact wording, punctuation, capitalization, numbers, units, and ordering.
-        ▸ You MUST copy the correct answer EXACTLY as it appears in the document (look for an answer key, answer line, bolded option, or marked answer). If the document does not indicate the correct answer, choose the option whose text matches the document most accurately and put that EXACT option text in 'correctAnswer'.
-        ▸ Do NOT invent additional options. If the source has 3 options, return 3. If 5, return 5.
-        ▸ Treat Markdown syntax (**, *, _, #, \`, lists) as PLAIN TEXT to be ignored — extract the underlying text content, not the markup. Do NOT render the markdown as HTML; just strip the markdown syntax characters and use the raw text.
-        ▸ The 'correctAnswer' field MUST be one of the strings inside the 'options' array — copy/paste exactly.
+        ▸ Copy the question text and every option CHARACTER-FOR-CHARACTER from the document.
+        ▸ Copy the correct answer EXACTLY as it appears in the document (look for an answer key, answer line, bolded option, or marked answer). If the document does not indicate the correct answer, pick the option whose text matches the document most accurately and put that EXACT option string in 'correctAnswer'.
 
         CASE B — The document is STUDY MATERIAL (notes, textbook, article, slides) without pre-written questions:
         ▸ Generate questions strictly grounded in the document's text.

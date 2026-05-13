@@ -83,6 +83,17 @@ export const shuffleArray = <T>(array: T[]): T[] => {
 };
 
 /**
+ * Strips a leading option-letter label (e.g. "A.", "B)", "C:") from option text
+ * for display only. The stored option string is preserved verbatim — this is
+ * used at render time so a randomized A/B/C/D label is not duplicated when the
+ * source document already embeds its own letter prefix.
+ */
+export const stripOptionLetterPrefix = (option: string): string => {
+  if (!option) return option;
+  return option.replace(/^\s*[A-Ea-e]\s*[).:、\.]\s*/, '');
+};
+
+/**
  * Cleans JSON response from markdown code blocks
  * @param text - Raw response text from API
  * @returns string - Cleaned JSON string

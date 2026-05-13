@@ -135,9 +135,9 @@ const App: React.FC = () => {
       const sessionId = saveExamSession(generatedQuestions, docHash, examConfig);
       setCurrentExamSessionId(sessionId);
 
-      // SEQUENTIAL mode: options stay in original order; RANDOM mode: options shuffled
-      const shouldShuffleOptions = examConfig.questionOrder === 'RANDOM';
-      const { questions: displayQuestions } = getDisplayQuestions(generatedQuestions as any, shouldShuffleOptions);
+      // Options are ALWAYS shuffled — core feature for exam practice.
+      // questionOrder only controls the order of questions, not options.
+      const { questions: displayQuestions } = getDisplayQuestions(generatedQuestions as any, true);
 
       // Apply question order (RANDOM or SEQUENTIAL) to display questions
       const finalQuestions = examConfig.questionOrder === 'RANDOM'
@@ -206,9 +206,8 @@ const App: React.FC = () => {
         throw new Error("SESSION_NOT_FOUND: Could not load the saved exam session for retake.");
       }
 
-      // SEQUENTIAL: keep option order; RANDOM: shuffle options
-      const shouldShuffleOptions = config?.questionOrder === 'RANDOM';
-      const { questions: displayQuestions } = getDisplayQuestions(originalQuestions, shouldShuffleOptions);
+      // Options are ALWAYS shuffled — core feature for exam practice.
+      const { questions: displayQuestions } = getDisplayQuestions(originalQuestions, true);
 
       // Apply question order from config
       const finalQuestions = config?.questionOrder === 'RANDOM'
@@ -263,9 +262,8 @@ const App: React.FC = () => {
         config?.totalQuestions
       );
 
-      // SEQUENTIAL: keep option order; RANDOM: shuffle options
-      const shouldShuffleOptions = config?.questionOrder === 'RANDOM';
-      const { questions: displayQuestions } = getDisplayQuestions(smartOrderedQuestions, shouldShuffleOptions);
+      // Options are ALWAYS shuffled — core feature for exam practice.
+      const { questions: displayQuestions } = getDisplayQuestions(smartOrderedQuestions, true);
 
       // Create retake session
       const retakeSessionId = createRetakeSession(sessionId, smartOrderedQuestions, config || undefined);
@@ -350,27 +348,126 @@ const App: React.FC = () => {
 
   const renderError = () => {
     if (!error) return null;
-    
-    let advice = "Try checking the document content or format.";
-    if (error.type === 'NO_QUESTIONS_FOUND') advice = "Ensure your document contains clear test questions with numbering (1, 2, 3) and options (A, B, C, D).";
-    if (error.type === 'API_LIMIT') advice = "The server is busy. Please wait a few moments.";
-    if (error.type === 'SAFETY_BLOCK') advice = "The content was rejected by the AI safety filters.";
+
+    const msg = (error.message || '').toLowerCase();
+    const type = (error.type || '').toUpperCase();
+
+    type ErrorQA = { question: string; explanation: string; steps: string[] };
+    let qa: ErrorQA = {
+      question: "What does this error mean?",
+      explanation: "An unexpected problem occurred while generating questions.",
+      steps: [
+        "Check that the document has clear, readable content.",
+        "Try again with fewer questions (e.g. 5–10).",
+        "Open Help (top right) → API Key Errors & FAQ for more details."
+      ]
+    };
+
+    const matches = (...needles: string[]) =>
+      needles.some(n => type.includes(n) || msg.includes(n.toLowerCase()));
+
+    if (matches('API_KEY_NOT_FOUND', 'NO_API_KEY', 'API key', 'API_KEY')) {
+      qa = {
+        question: "Why is the API key missing or invalid?",
+        explanation: "SmartExam needs a Google Gemini API key to call the AI. Either none is configured, or the saved key was rejected.",
+        steps: [
+          "Go to https://aistudio.google.com/app/apikey and create/copy a Gemini API key.",
+          "Click ⚙️ Settings → paste the key into 'Gemini API Key' → Save.",
+          "Make sure you copied the full key with no extra spaces."
+        ]
+      };
+    } else if (matches('API_LIMIT', 'QUOTA', 'RATE', 'rate limit', 'reach limit', 'limit', '429', 'exhausted', 'too many requests')) {
+      qa = {
+        question: "Why did the API reach its limit?",
+        explanation: "Google Gemini enforces per-minute and per-day quotas. The free tier is small (≈15 requests/min). Your key just hit one of these caps.",
+        steps: [
+          "Wait 1–2 minutes, then try again.",
+          "Reduce 'Total Questions' (try 5–10 at a time).",
+          "Upgrade your Gemini plan in Google AI Studio for higher quotas.",
+          "Open Help → API Key Errors & FAQ for more troubleshooting."
+        ]
+      };
+    } else if (matches('NETWORK_TIMEOUT', 'RPC', 'Code 6', 'timeout', 'fetch failed', 'network')) {
+      qa = {
+        question: "Why did the network/RPC call fail?",
+        explanation: "The connection to Google's AI server timed out or was dropped before a response was returned.",
+        steps: [
+          "Check your internet connection.",
+          "Reduce the number of questions — large requests are more likely to time out.",
+          "Try a faster model (e.g. Flash) in the AI Engine selector.",
+          "Wait a moment and retry."
+        ]
+      };
+    } else if (matches('SAFETY_BLOCK', 'safety', 'blocked')) {
+      qa = {
+        question: "Why was the content blocked?",
+        explanation: "The AI's safety filters rejected something in the document or the generated output.",
+        steps: [
+          "Remove or rephrase sensitive sections in the source.",
+          "Try uploading a different section of the same material.",
+          "Switch to another AI Engine in Setup."
+        ]
+      };
+    } else if (matches('NO_QUESTIONS', 'NO_QUESTIONS_FOUND', 'PARSING_ERROR', 'EMPTY_RESPONSE', 'parse', 'empty')) {
+      qa = {
+        question: "Why couldn't questions be extracted?",
+        explanation: "The AI either returned no questions, or its output couldn't be parsed as valid JSON.",
+        steps: [
+          "Make sure the document contains clear question/answer content.",
+          "Reduce 'Total Questions' to 5–10 — large counts often break JSON output.",
+          "If your file is a scan/PDF, ensure the text is selectable (not just an image).",
+          "Try again — large-model JSON output can occasionally fail."
+        ]
+      };
+    } else if (matches('SESSION_NOT_FOUND', 'PROFILE_NOT_FOUND')) {
+      qa = {
+        question: "Why can't the saved session be loaded?",
+        explanation: "The original exam session was not found in your browser storage, so a retake with fresh shuffles isn't possible.",
+        steps: [
+          "Start a new exam from Home — older sessions may have been cleared.",
+          "Avoid clearing browser data if you want to keep retake history.",
+          "Take at least one exam before using Smart Retake (it needs performance data)."
+        ]
+      };
+    } else if (matches('CORS')) {
+      qa = {
+        question: "Why is CORS blocking the request?",
+        explanation: "Your browser refused the cross-origin call to the backend proxy.",
+        steps: [
+          "Switch to Direct mode in ⚙️ Settings (uncheck 'Use Backend Proxy').",
+          "If you really need proxy mode, configure CORS on your backend to allow this origin."
+        ]
+      };
+    }
 
     return (
       <div className="mb-6 p-5 bg-red-50 border-l-4 border-red-500 rounded-r-xl shadow-sm animate-slide-up flex items-start space-x-4 dark:bg-red-900/20 dark:border-red-600">
         <div className="bg-red-500 p-2 rounded-lg mt-0.5">
           <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
         </div>
-        <div>
+        <div className="flex-1">
           <h4 className="font-black text-red-900 dark:text-red-300 text-sm uppercase tracking-wider mb-1">
-            {error.type.replace('_', ' ')}
+            {error.type.replace(/_/g, ' ')}
           </h4>
-          <p className="text-red-700 dark:text-red-400 font-medium text-sm leading-relaxed mb-2">
+          <p className="text-red-700 dark:text-red-400 font-medium text-sm leading-relaxed mb-3">
             {error.message}
           </p>
-          <div className="flex items-center space-x-2 text-red-600/80 dark:text-red-300 italic text-xs font-bold bg-white/50 dark:bg-black/20 p-2 rounded-lg border border-red-100 dark:border-red-900/50">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <span>{advice}</span>
+          <div className="bg-white/70 dark:bg-black/20 p-3 rounded-lg border border-red-100 dark:border-red-900/50 space-y-2">
+            <p className="text-xs font-black uppercase tracking-wider text-red-700 dark:text-red-300">
+              ❓ Q: {qa.question}
+            </p>
+            <p className="text-xs text-red-800 dark:text-red-200 leading-relaxed">
+              <strong>A:</strong> {qa.explanation}
+            </p>
+            <ul className="text-xs text-red-800 dark:text-red-200 leading-relaxed list-disc list-inside space-y-1">
+              {qa.steps.map((s, i) => <li key={i}>{s}</li>)}
+            </ul>
+            <button
+              onClick={() => setShowHelp(true)}
+              className="mt-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              Open full API Key Errors & FAQ →
+            </button>
           </div>
         </div>
       </div>
