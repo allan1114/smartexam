@@ -268,6 +268,47 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, isDark }) => {
                       <li>Review your recent API usage to check for suspicious activity</li>
                     </ul>
                   </div>
+
+                  {/* Q&A 8: Minimax key not bound to plan */}
+                  <div className={`p-4 rounded-lg ${isDark ? 'bg-slate-700' : 'bg-slate-100'} border-l-4 ${isDark ? 'border-purple-500' : 'border-purple-400'}`}>
+                    <p className={`font-semibold mb-2 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>❌ Minimax: "usage limit exceeded ... 0/0 used" (Token / Code Plan)</p>
+                    <p className="mb-2"><strong>What does it mean?</strong></p>
+                    <p className="mb-3">The key you pasted is not bound to a plan with quota. Minimax issues TWO separate kinds of keys: a <strong>Pay-as-you-go Key</strong> and a <strong>Token Plan Key</strong>. If you subscribed to a Token Plan (Starter / Code Plan / etc.), only the Token Plan Key has quota — the regular API key will report "0/0 used".</p>
+                    <p className="mb-2"><strong>Solutions:</strong></p>
+                    <ul className="space-y-1 ml-4 list-disc">
+                      <li>Go to <a href="https://platform.minimax.io/user-center/basic-information/interface-key" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">platform.minimax.io → API Keys</a>.</li>
+                      <li>If you have a Token / Code Plan, click <strong>"Create Token Plan Key"</strong> — not "Create new secret key".</li>
+                      <li>Confirm remaining balance on the Billing / Token Plan page.</li>
+                      <li>Paste the new key into ⚙️ Settings → <strong>Minimax API Key</strong>, save, and retry.</li>
+                    </ul>
+                  </div>
+
+                  {/* Q&A 9: Minimax can't read uploaded files */}
+                  <div className={`p-4 rounded-lg ${isDark ? 'bg-slate-700' : 'bg-slate-100'} border-l-4 ${isDark ? 'border-purple-500' : 'border-purple-400'}`}>
+                    <p className={`font-semibold mb-2 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>❌ Minimax: "BINARY_FILE_UNSUPPORTED" (PDF / image upload)</p>
+                    <p className="mb-2"><strong>What does it mean?</strong></p>
+                    <p className="mb-3">Minimax's OpenAI-compatible API only accepts text. Unlike Gemini, it cannot ingest a raw PDF or image — so if you upload a binary file with no extractable text, the model has nothing to work from and would otherwise fabricate questions.</p>
+                    <p className="mb-2"><strong>Solutions:</strong></p>
+                    <ul className="space-y-1 ml-4 list-disc">
+                      <li>Switch the AI Engine to a Google / Gemini model (Gemini reads files natively).</li>
+                      <li>Or open the document, copy the text, and use the Home → <strong>Manual Paste</strong> tab.</li>
+                      <li>Or convert the PDF to a plain <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded text-xs`}>.txt</code> file first, then upload.</li>
+                    </ul>
+                  </div>
+
+                  {/* Q&A 10: Minimax fabricating */}
+                  <div className={`p-4 rounded-lg ${isDark ? 'bg-slate-700' : 'bg-slate-100'} border-l-4 ${isDark ? 'border-purple-500' : 'border-purple-400'}`}>
+                    <p className={`font-semibold mb-2 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>⚠️ Minimax is generating questions that aren't in my document</p>
+                    <p className="mb-2"><strong>Why?</strong></p>
+                    <p className="mb-3">Minimax's M-series follows instructions a bit more loosely than Gemini and may pull from prior knowledge if the document is short or ambiguous. SmartExam already caps temperature at 0.1 and locks the prompt to "no fabrication", but very thin documents (e.g. half a page asking for 20 questions) still tempt the model.</p>
+                    <p className="mb-2"><strong>Solutions:</strong></p>
+                    <ul className="space-y-1 ml-4 list-disc">
+                      <li>Lower the requested question count (e.g. 5–10).</li>
+                      <li>Provide more source text — paste a longer excerpt or upload the full chapter.</li>
+                      <li>For best fidelity on study guides, switch to a Gemini model.</li>
+                      <li>If a specific question looks wrong, click <strong>Flag</strong> on it to mark it for review.</li>
+                    </ul>
+                  </div>
                 </div>
               </section>
 

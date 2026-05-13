@@ -366,7 +366,28 @@ const App: React.FC = () => {
     const matches = (...needles: string[]) =>
       needles.some(n => type.includes(n) || msg.includes(n.toLowerCase()));
 
-    if (matches('API_KEY_NOT_FOUND', 'NO_API_KEY', 'API key', 'API_KEY')) {
+    if (matches('BINARY_FILE_UNSUPPORTED')) {
+      qa = {
+        question: "Why can't Minimax read my uploaded file?",
+        explanation: "Minimax's OpenAI-compatible API only accepts text — it cannot extract content from PDFs or images directly the way Gemini does.",
+        steps: [
+          "Easiest: pick a Gemini model (Setup → AI Engine → Google).",
+          "Or open the document, copy the text, and use the Home → 'Manual Paste' tab.",
+          "Or convert the PDF to plain .txt first, then upload that."
+        ]
+      };
+    } else if (matches('Minimax', 'minimax', 'Token Plan', '0/0 used', 'usage limit')) {
+      qa = {
+        question: "Why is Minimax rejecting the request?",
+        explanation: "Minimax splits API keys into 'Pay-as-you-go Key' and 'Token Plan Key'. If you're on a Token Plan / Code Plan, only a Token Plan Key has quota — a Pay-as-you-go key will report '0/0 used'.",
+        steps: [
+          "Go to https://platform.minimax.io/user-center/basic-information/interface-key.",
+          "If you're on Token / Code Plan, click 'Create Token Plan Key' (NOT 'Create new secret key').",
+          "Confirm remaining balance on the Billing page.",
+          "Paste the new key into ⚙️ Settings → Minimax API Key, save, retry."
+        ]
+      };
+    } else if (matches('API_KEY_NOT_FOUND', 'NO_API_KEY', 'API key', 'API_KEY')) {
       qa = {
         question: "Why is the API key missing or invalid?",
         explanation: "SmartExam needs a Google Gemini API key to call the AI. Either none is configured, or the saved key was rejected.",
