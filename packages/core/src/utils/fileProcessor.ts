@@ -94,23 +94,43 @@ export const stripOptionLetterPrefix = (option: string): string => {
 };
 
 /**
- * Cleans JSON response from markdown code blocks
- * @param text - Raw response text from API
- * @returns string - Cleaned JSON string
+ * Cleans JSON response from markdown code blocks, reasoning preambles, and
+ * any prose that some models (e.g. MiniMax-M2.7) emit around the JSON.
+ *
+ * Strategy:
+ *   1. Drop any <think>…</think> reasoning blocks.
+ *   2. Strip a single set of leading/trailing ```json … ``` fences.
+ *   3. If the string still doesn't start with `{` or `[`, extract the largest
+ *      span from the first `{` (or `[`) to the last matching `}` (or `]`).
  */
 export const cleanJsonResponse = (text: string): string => {
   if (!text) return '';
 
-  // Remove markdown code blocks if present
-  let cleaned = text
-    .replace(/^```json\s*/i, '')
-    .replace(/\s*```$/i, '')
+  let cleaned = text.trim();
+
+  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+  cleaned = cleaned
+    .replace(/^```(?:json|JSON)?\s*\n?/i, '')
+    .replace(/\n?\s*```\s*$/i, '')
     .trim();
 
-  // If there's still markdown after cleaning, try a more aggressive approach
-  if (cleaned.includes('```')) {
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) cleaned = match[0];
+  if (!/^[\{\[]/.test(cleaned)) {
+    const firstBrace = cleaned.indexOf('{');
+    const firstBracket = cleaned.indexOf('[');
+    let start = -1;
+    let endChar = '';
+    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+      start = firstBrace;
+      endChar = '}';
+    } else if (firstBracket !== -1) {
+      start = firstBracket;
+      endChar = ']';
+    }
+    if (start !== -1) {
+      const end = cleaned.lastIndexOf(endChar);
+      if (end > start) cleaned = cleaned.slice(start, end + 1).trim();
+    }
   }
 
   return cleaned;
