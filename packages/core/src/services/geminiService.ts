@@ -120,11 +120,33 @@ const callMinimax = async (
     throw new Error('NO_API_KEY: No Minimax API key configured. Click ⚙️ Settings → paste your Minimax API key → Save Settings. Get one at https://platform.minimax.io.');
   }
 
+  // Minimax M-series follows instructions more loosely than Gemini at the same
+  // temperature and will gladly fabricate questions if not pinned. Force the
+  // sampling to be near-deterministic, regardless of the caller's request.
+  const minimaxTemperature = Math.min(config?.temperature ?? 0.1, 0.1);
+
   const messages = buildOpenAIMessages(contents, config?.systemInstruction);
+
+  // Minimax (OpenAI-compat) cannot read inline binary file data — it only
+  // sees text. If the caller only supplied a binary file, fail fast with a
+  // clear message instead of letting the model fabricate from thin air.
+  const userTextLen = messages
+    .filter(m => m.role === 'user')
+    .map(m => (m.content || '').replace(/<<<BEGIN_DOCUMENT>>>|<<<END_DOCUMENT>>>/g, '').trim())
+    .join('')
+    .length;
+  const hasInlineFile = Array.isArray(contents?.parts) && contents.parts.some((p: any) => p?.inlineData);
+  if (hasInlineFile && userTextLen < 20) {
+    throw new Error(
+      'BINARY_FILE_UNSUPPORTED: Minimax models cannot read PDF/image/binary uploads directly. Either pick a Gemini model, or use the "Manual Paste" tab on the Home screen to paste the document text.'
+    );
+  }
+
   const body: any = {
     model,
     messages,
-    ...(config?.temperature !== undefined && { temperature: config.temperature }),
+    temperature: minimaxTemperature,
+    top_p: 0.5,
     ...(config?.responseMimeType === 'application/json' && {
       response_format: { type: 'json_object' },
     }),
@@ -141,8 +163,20 @@ const callMinimax = async (
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({} as any));
-    const msg = err?.error?.message || err?.base_resp?.status_msg || `${resp.status} ${resp.statusText}`;
-    throw new Error(`Minimax API Error: ${msg}`);
+    const rawMsg: string = err?.error?.message || err?.base_resp?.status_msg || `${resp.status} ${resp.statusText}`;
+
+    // Minimax returns "usage limit exceeded ... (0/0 used)" when the API key
+    // is not bound to a plan that has token quota (e.g. a Pay-as-you-go key
+    // used against a Token/Code Plan). Surface a clearer hint.
+    if (/usage limit|Token Plan|0\/0 used/i.test(rawMsg)) {
+      throw new Error(
+        `API_LIMIT: Minimax rejected the request: "${rawMsg}". This usually means the API key is not associated with your billing plan. Go to https://platform.minimax.io/user-center/basic-information/interface-key and (a) if you are on a Token Plan / Code Plan, create a "Token Plan Key" specifically — Pay-as-you-go keys won't work; (b) confirm you have remaining quota on the Billing page; (c) paste the new key into ⚙️ Settings → Minimax API Key.`
+      );
+    }
+    if (/invalid|unauthorized|forbidden|api ?key/i.test(rawMsg)) {
+      throw new Error(`API_KEY_NOT_FOUND: Minimax rejected the key: "${rawMsg}". Re-check ⚙️ Settings → Minimax API Key.`);
+    }
+    throw new Error(`Minimax API Error: ${rawMsg}`);
   }
 
   const data: any = await resp.json();
@@ -227,17 +261,25 @@ export const parseDocumentToQuestions = async (
       finalModelName,
       {
         parts: [
-          { text: source.text ? `DOCUMENT CONTENT:\n${textContext}` : "Analyze the attached file and extract questions from its content." },
+          { text: source.text ? `<<<BEGIN_DOCUMENT>>>\n${textContext}\n<<<END_DOCUMENT>>>` : "Analyze the attached file and extract questions from its content." },
           ...(source.fileData ? [{ inlineData: source.fileData }] : [])
         ]
       },
       {
         systemInstruction: `You are a professional exam compiler. Your job is to FAITHFULLY transcribe questions from the source document — never to invent, rephrase, or improve them.
 
-        TASK: Produce exactly ${count} questions from the provided document.${rangeText}
+        TASK: Produce up to ${count} questions from the provided document.${rangeText}
 
         ============================================================
-        ABSOLUTE RULE — 100% VERBATIM TRANSCRIPTION (HIGHEST PRIORITY)
+        RULE #0 — ABSOLUTELY NO FABRICATION (HIGHEST PRIORITY)
+        ============================================================
+        ▸ Every question, option, correctAnswer, sourceQuote, and explanation MUST be derived from text that appears verbatim inside the <<<BEGIN_DOCUMENT>>> … <<<END_DOCUMENT>>> block in the user message.
+        ▸ Do NOT use prior knowledge, do NOT add commonly-known facts, do NOT invent plausible-sounding distractors. If a fact is not in the document, it does not exist for the purpose of this task.
+        ▸ If the document does not contain enough material for ${count} questions, return FEWER. It is better to return 3 honest questions than ${count} fabricated ones.
+        ▸ If the document is empty, unreadable, or contains no question-worthy content, return {"questions": []}.
+
+        ============================================================
+        RULE #1 — 100% VERBATIM TRANSCRIPTION
         ============================================================
         The user's uploaded document is the SINGLE SOURCE OF TRUTH. You MUST NOT modify its content in any way. Specifically:
         ▸ Do NOT paraphrase, reword, summarize, simplify, expand, translate, fix grammar, fix typos, normalize punctuation, change capitalization, or "improve" anything.
@@ -262,7 +304,7 @@ export const parseDocumentToQuestions = async (
         ============================================================
         1. COVERAGE: Divide the document into ${count} roughly equal segments and select one question per segment to ensure full coverage. Use seed ${randomSeed} as the random anchor.
         2. NO DUPLICATION: Each question must be distinct and cover a different part of the document.
-        3. SOURCE QUOTE: For every question, provide a 'sourceQuote' — a verbatim excerpt (10-40 words) from the document that directly justifies the correct answer. Copy it character-for-character.
+        3. SOURCE QUOTE: For every question, provide a 'sourceQuote' — a verbatim excerpt (10-40 words) from the document that directly justifies the correct answer. Copy it character-for-character. If you cannot find a verbatim excerpt to justify an option, do not include that question.
         4. ANSWER FORMAT: Follow ${answerFormat}.
         5. EXPLANATION: Keep the explanation concise (1-3 sentences) and grounded in the sourceQuote.
 
@@ -273,7 +315,7 @@ export const parseDocumentToQuestions = async (
         Each question must have: id, question, options, correctAnswer, explanation, sourceQuote, topic.
         The 'correctAnswer' string MUST match one of the 'options' strings exactly (character-for-character).`,
         responseMimeType: "application/json",
-        temperature: 0.3,
+        temperature: 0.1,
         seed: randomSeed,
         responseSchema: {
           type: Type.OBJECT,
