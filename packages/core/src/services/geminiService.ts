@@ -147,6 +147,12 @@ const callMinimax = async (
     messages,
     temperature: minimaxTemperature,
     top_p: 0.5,
+    // Give the model enough budget to emit a full JSON answer for ~10
+    // questions; truncated output was the most common cause of parse errors.
+    max_tokens: 8192,
+    // Push the model's chain-of-thought into a separate `reasoning_details`
+    // field so `content` is just the JSON answer — much easier to parse.
+    reasoning_split: true,
     ...(config?.responseMimeType === 'application/json' && {
       response_format: { type: 'json_object' },
     }),
