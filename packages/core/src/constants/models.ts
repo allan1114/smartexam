@@ -50,18 +50,32 @@ export const AI_MODELS: ModelConfig[] = [
     provider: 'google',
     category: 'balanced'
   },
-  // Minimax Models
+  // Minimax Models — IDs must match Minimax's OpenAI-compatible API exactly
   {
-    id: 'minimax-2.7',
-    name: 'Minimax 2.7',
-    description: 'High-performance Chinese AI',
+    id: 'MiniMax-M2.7',
+    name: 'Minimax M2.7',
+    description: 'Latest, peak performance',
     provider: 'minimax',
     category: 'advanced'
   },
   {
-    id: 'minimax-2.6',
-    name: 'Minimax 2.6',
-    description: 'Stable & Reliable',
+    id: 'MiniMax-M2.7-highspeed',
+    name: 'Minimax M2.7 Highspeed',
+    description: 'Faster M2.7',
+    provider: 'minimax',
+    category: 'fast'
+  },
+  {
+    id: 'MiniMax-M2.5',
+    name: 'Minimax M2.5',
+    description: 'Stable & reliable',
+    provider: 'minimax',
+    category: 'balanced'
+  },
+  {
+    id: 'MiniMax-M2.1',
+    name: 'Minimax M2.1',
+    description: 'Lightweight reasoning',
     provider: 'minimax',
     category: 'balanced'
   },
@@ -125,4 +139,18 @@ export const getModelConfig = (modelId: string): ModelConfig | undefined => {
 
 // Default models for UI components
 export const DEFAULT_MODEL = 'gemini-3-flash-preview';
-export const RECOMMENDED_MODELS = ['gemini-3-flash-preview', 'minimax-2.7', 'claude-opus', 'gpt-4o'];
+export const RECOMMENDED_MODELS = ['gemini-3-flash-preview', 'MiniMax-M2.7', 'claude-opus', 'gpt-4o'];
+
+/**
+ * Resolve the provider for a given model id. Falls back to 'google' for
+ * unknown ids so existing Gemini code paths still work.
+ */
+export const getProviderForModel = (modelId: string): ModelConfig['provider'] => {
+  const cfg = AI_MODELS.find(m => m.id === modelId);
+  if (cfg) return cfg.provider;
+  // Best-effort prefix detection for ids that aren't in the registry
+  if (/^MiniMax-/i.test(modelId)) return 'minimax';
+  if (/^claude-/i.test(modelId)) return 'anthropic';
+  if (/^gpt-/i.test(modelId)) return 'openai';
+  return 'google';
+};

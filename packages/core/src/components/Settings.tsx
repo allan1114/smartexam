@@ -11,20 +11,25 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const [useProxy, setUseProxy] = useState(false);
   const [proxyUrl, setProxyUrl] = useState('/api/proxy-gemini');
   const [apiKey, setApiKey] = useState('');
+  const [minimaxApiKey, setMinimaxApiKey] = useState('');
   const [logLevel, setLogLevel] = useState('WARN');
   const [saveMessage, setSaveMessage] = useState('');
+
+  const selectedProvider = AI_MODELS.find(m => m.id === model)?.provider ?? 'google';
 
   useEffect(() => {
     const savedModel = localStorage.getItem('smart_exam_model');
     const savedUseProxy = localStorage.getItem('smart_exam_use_proxy');
     const savedProxyUrl = localStorage.getItem('smart_exam_proxy_url');
     const savedApiKey = localStorage.getItem('smart_exam_api_key');
+    const savedMinimaxKey = localStorage.getItem('smart_exam_minimax_api_key');
     const savedLogLevel = localStorage.getItem('smart_exam_log_level');
 
     if (savedModel) setModel(savedModel);
     if (savedUseProxy === 'true') setUseProxy(true);
     if (savedProxyUrl) setProxyUrl(savedProxyUrl);
     if (savedApiKey) setApiKey(savedApiKey);
+    if (savedMinimaxKey) setMinimaxApiKey(savedMinimaxKey);
     if (savedLogLevel) setLogLevel(savedLogLevel);
   }, [isOpen]);
 
@@ -36,6 +41,11 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
       localStorage.setItem('smart_exam_api_key', apiKey);
     } else {
       localStorage.removeItem('smart_exam_api_key');
+    }
+    if (minimaxApiKey) {
+      localStorage.setItem('smart_exam_minimax_api_key', minimaxApiKey);
+    } else {
+      localStorage.removeItem('smart_exam_minimax_api_key');
     }
     localStorage.setItem('smart_exam_log_level', logLevel);
 
@@ -49,11 +59,13 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
       setUseProxy(false);
       setProxyUrl('/api/proxy-gemini');
       setApiKey('');
+      setMinimaxApiKey('');
       setLogLevel('WARN');
       localStorage.removeItem('smart_exam_model');
       localStorage.removeItem('smart_exam_use_proxy');
       localStorage.removeItem('smart_exam_proxy_url');
       localStorage.removeItem('smart_exam_api_key');
+      localStorage.removeItem('smart_exam_minimax_api_key');
       localStorage.removeItem('smart_exam_log_level');
       setSaveMessage('✓ Settings reset to defaults');
       setTimeout(() => setSaveMessage(''), 2000);
@@ -151,6 +163,28 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                   />
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     Get your free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Google AI Studio</a>. Saved to localStorage — never sent anywhere except directly to Google.
+                  </p>
+                </div>
+              )}
+
+              {/* Minimax API key */}
+              {!useProxy && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Minimax API Key
+                    {selectedProvider === 'minimax' && (
+                      <span className="ml-2 text-xs font-bold text-indigo-600 dark:text-indigo-400">Required for selected model</span>
+                    )}
+                  </label>
+                  <input
+                    type="password"
+                    value={minimaxApiKey}
+                    onChange={(e) => setMinimaxApiKey(e.target.value)}
+                    placeholder="sk-..."
+                    className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                  />
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Get a key at <a href="https://platform.minimax.io/user-center/basic-information/interface-key" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">platform.minimax.io</a>. Used only when a MiniMax-* model is selected; sent directly to api.minimax.io.
                   </p>
                 </div>
               )}
