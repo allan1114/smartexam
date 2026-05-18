@@ -202,18 +202,31 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, isDark }) => {
                     </ul>
                   </div>
 
-                  {/* Q&A 3: Invalid API Key */}
+                  {/* Q&A 3: Invalid/Expired API Key */}
                   <div className={`p-4 rounded-lg ${isDark ? 'bg-slate-700' : 'bg-slate-100'} border-l-4 ${isDark ? 'border-red-500' : 'border-red-400'}`}>
-                    <p className={`font-semibold mb-2 ${isDark ? 'text-red-300' : 'text-red-700'}`}>❌ Error: "Invalid API Key" or "API Key not found"</p>
+                    <p className={`font-semibold mb-2 ${isDark ? 'text-red-300' : 'text-red-700'}`}>❌ Error: "API key expired" or "Invalid API Key"</p>
                     <p className="mb-2"><strong>What does it mean?</strong></p>
-                    <p className="mb-3">The API key you entered is incorrect, expired, or malformed.</p>
+                    <p className="mb-3">Google rejected your API key. Even though it says "never expire" in Google AI Studio, it can still be rejected if you're using the wrong type of key or it doesn't have proper permissions.</p>
+                    <p className="mb-2"><strong>Most Common Cause:</strong></p>
+                    <p className="mb-3 font-semibold text-red-600 dark:text-red-400">⚠️ You created a <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>Cloud API key</code> instead of a <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded`}>Gemini API key</code>. These are different and use different endpoints!</p>
                     <p className="mb-2"><strong>Solutions:</strong></p>
-                    <ul className="space-y-1 ml-4 list-disc">
-                      <li>Double-check you copied the entire key correctly (no extra spaces)</li>
-                      <li>Verify you're using a Gemini API key, not a Cloud API key</li>
-                      <li>Generate a new key in <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Google AI Studio</a></li>
-                      <li>Make sure the key is not expired (check Google AI Studio)</li>
-                    </ul>
+                    <ol className="space-y-2 ml-4 list-decimal list-inside">
+                      <li>
+                        Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Google AI Studio</a>
+                      </li>
+                      <li>
+                        Check your API key type. If it says <code className={`${isDark ? 'bg-slate-600' : 'bg-slate-200'} px-1 rounded text-xs`}>Cloud API key</code>, <strong>delete it immediately</strong>
+                      </li>
+                      <li>
+                        Create a <strong>new API key</strong> in Google AI Studio — it will automatically be the correct type (Gemini API key)
+                      </li>
+                      <li>
+                        Copy the new key and paste it into SmartExam Settings
+                      </li>
+                      <li>
+                        Make sure there are no extra spaces before/after the key
+                      </li>
+                    </ol>
                   </div>
 
                   {/* Q&A 4: API Service Unavailable */}
@@ -257,7 +270,32 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, isDark }) => {
                     </ul>
                   </div>
 
-                  {/* Q&A 7: Key Leaked */}
+                  {/* Q&A 7: API Key Type Confusion */}
+                  <div className={`p-4 rounded-lg ${isDark ? 'bg-blue-900/30 border border-blue-700' : 'bg-blue-50 border border-blue-200'}`}>
+                    <p className={`font-semibold mb-2 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>ℹ️ What's the difference between Gemini API key and Cloud API key?</p>
+                    <div className="space-y-3 text-sm">
+                      <div>
+                        <p className="font-semibold">✅ Gemini API Key (What you need):</p>
+                        <ul className="ml-4 mt-1 space-y-1 text-xs">
+                          <li>• Created in <strong>Google AI Studio</strong> (aistudio.google.com)</li>
+                          <li>• Works with Gemini API directly</li>
+                          <li>• Simple to set up — click "Create API Key" button</li>
+                          <li>• Free tier: 15 requests/minute, up to 32k tokens/minute</li>
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="font-semibold">❌ Cloud API Key (What NOT to use):</p>
+                        <ul className="ml-4 mt-1 space-y-1 text-xs">
+                          <li>• Created in Google Cloud Console</li>
+                          <li>• Requires Cloud billing setup</li>
+                          <li>• Different API endpoint — won't work with Gemini API</li>
+                          <li>• Will cause "API key expired" errors even if valid</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Q&A 8: Key Leaked */}
                   <div className={`p-4 rounded-lg ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
                     <p className={`font-semibold mb-2 ${isDark ? 'text-red-300' : 'text-red-700'}`}>🚨 I think my API key was exposed/leaked</p>
                     <p className="mb-2"><strong>What should you do?</strong></p>

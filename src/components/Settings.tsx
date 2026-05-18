@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AI_MODELS } from '../constants/models';
+import { isValidGeminiApiKey } from '../utils/errors';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -14,6 +15,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const [logLevel, setLogLevel] = useState('WARN');
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [validationMessage, setValidationMessage] = useState('');
 
   useEffect(() => {
     // Load settings from localStorage
@@ -30,7 +32,18 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     if (savedLogLevel) setLogLevel(savedLogLevel);
   }, [isOpen]);
 
+  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newKey = e.target.value;
+    setApiKey(newKey);
+    setValidationMessage('');
+  };
+
   const handleSaveSettings = () => {
+    if (apiKey && !isValidGeminiApiKey(apiKey)) {
+      setValidationMessage('⚠️ Warning: This API key format looks unusual. Make sure you\'re using a Gemini API key from Google AI Studio (starting with AIza...), not a Cloud API key.');
+      return;
+    }
+
     localStorage.setItem('smart_exam_api_key', apiKey);
     localStorage.setItem('smart_exam_model', model);
     localStorage.setItem('smart_exam_use_proxy', String(useProxy));
@@ -38,6 +51,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     localStorage.setItem('smart_exam_log_level', logLevel);
 
     setSaveMessage('✓ Settings saved successfully');
+    setValidationMessage('');
     setTimeout(() => setSaveMessage(''), 2000);
   };
 
@@ -132,19 +146,27 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                 <input
                   type="password"
                   value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Enter your Gemini API key (sk_...)"
+                  onChange={handleApiKeyChange}
+                  placeholder="Enter your Gemini API key (starts with AIza...)"
                   className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
+                {validationMessage && (
+                  <p className="text-sm text-amber-600 dark:text-amber-400">
+                    {validationMessage}
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setShowApiKeyInput(false)}
+                    onClick={handleSaveSettings}
                     className="flex-1 px-3 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded transition"
                   >
                     Save
                   </button>
                   <button
-                    onClick={() => setShowApiKeyInput(false)}
+                    onClick={() => {
+                      setShowApiKeyInput(false);
+                      setValidationMessage('');
+                    }}
                     className="flex-1 px-3 py-2 text-sm bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 dark:hover:bg-slate-500 text-slate-900 dark:text-white rounded transition"
                   >
                     Cancel
@@ -152,6 +174,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   Get your API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 hover:underline">Google AI Studio</a>
+                  <br />
+                  <strong>Important:</strong> Use a Gemini API key (not a Cloud API key). If it says "Cloud API key," delete it and create a new one from Google AI Studio.
                 </p>
               </div>
             )}

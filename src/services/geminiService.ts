@@ -2,20 +2,31 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis } from "../types";
 import { cleanJsonResponse, shuffleArray } from "../utils/fileProcessor";
-import { ApiError, isRetryableError } from "../utils/errors";
+import { ApiError, isRetryableError, isValidGeminiApiKey } from "../utils/errors";
 import { logger } from "../utils/logger";
 
 /**
  * Get API key from localStorage first, then fallback to environment variable
+ * Validates that the key is in the correct format
  */
 const getApiKey = (): string => {
   const savedKey = localStorage.getItem('smart_exam_api_key');
-  if (savedKey) return savedKey;
+  if (savedKey) {
+    if (!isValidGeminiApiKey(savedKey)) {
+      throw new Error('API_KEY_INVALID: The API key format is invalid. Please ensure you\'re using a Gemini API key from Google AI Studio (https://aistudio.google.com/app/apikey), not a Cloud API key.');
+    }
+    return savedKey;
+  }
 
   const envKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!envKey) {
     throw new Error('API_KEY_NOT_FOUND: No Gemini API key found. Please configure it in Settings.');
   }
+
+  if (!isValidGeminiApiKey(envKey)) {
+    throw new Error('API_KEY_INVALID: The API key format is invalid. Please ensure you\'re using a Gemini API key from Google AI Studio, not a Cloud API key.');
+  }
+
   return envKey;
 };
 
@@ -181,11 +192,21 @@ export const parseDocumentToQuestions = async (
     const errorObj = error instanceof Error ? error : new Error(String(error));
     logger.error("Failed to parse document into questions", 'geminiService.parseDocumentToQuestions', errorObj);
     const msg = errorObj.message;
-    
+
+    // Check for authentication errors (API key issues)
+    if (msg.toLowerCase().includes('unauthenticated') ||
+        msg.toLowerCase().includes('permission denied') ||
+        msg.toLowerCase().includes('expired') ||
+        msg.toLowerCase().includes('invalid api key') ||
+        msg.toLowerCase().includes('401') ||
+        msg.toLowerCase().includes('403')) {
+      throw new Error(`API_KEY_ERROR: Your API key appears to be invalid or expired. Please:\n1. Verify you're using a Gemini API key from Google AI Studio (not a Cloud API key)\n2. Check that the key hasn't been deleted in Google AI Studio\n3. If quota-related, check your usage at https://console.cloud.google.com\n\nOriginal error: ${msg}`);
+    }
+
     if (msg.includes('Rpc failed') || msg.includes('Code 6')) {
       throw new Error(`NETWORK_TIMEOUT: 連線至 AI 伺服器時發生 RPC 錯誤 (Code 6)。請嘗試：1. 減少題目數量 2. 稍後再試一次。`);
     }
-    
+
     throw new Error(`GENERATION_FAILED: ${msg}`);
   }
 };
