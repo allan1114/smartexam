@@ -11,6 +11,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const [proxyUrl, setProxyUrl] = useState('/api/proxy-gemini');
   const [apiKey, setApiKey] = useState('');
   const [logLevel, setLogLevel] = useState('WARN');
+  const [temperature, setTemperature] = useState(0.3);
   const [saveMessage, setSaveMessage] = useState('');
 
   useEffect(() => {
@@ -19,12 +20,17 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     const savedProxyUrl = localStorage.getItem('smart_exam_proxy_url');
     const savedApiKey = localStorage.getItem('smart_exam_api_key');
     const savedLogLevel = localStorage.getItem('smart_exam_log_level');
+    const savedTemp = localStorage.getItem('smart_exam_temperature');
 
     if (savedModel) setModel(savedModel);
     if (savedUseProxy === 'true') setUseProxy(true);
     if (savedProxyUrl) setProxyUrl(savedProxyUrl);
     if (savedApiKey) setApiKey(savedApiKey);
     if (savedLogLevel) setLogLevel(savedLogLevel);
+    if (savedTemp) {
+      const t = parseFloat(savedTemp);
+      if (Number.isFinite(t)) setTemperature(Math.min(1, Math.max(0, t)));
+    }
   }, [isOpen]);
 
   const handleSaveSettings = () => {
@@ -37,6 +43,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
       localStorage.removeItem('smart_exam_api_key');
     }
     localStorage.setItem('smart_exam_log_level', logLevel);
+    localStorage.setItem('smart_exam_temperature', String(temperature));
 
     setSaveMessage('✓ Settings saved successfully');
     setTimeout(() => setSaveMessage(''), 2000);
@@ -49,11 +56,13 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
       setProxyUrl('/api/proxy-gemini');
       setApiKey('');
       setLogLevel('WARN');
+      setTemperature(0.3);
       localStorage.removeItem('smart_exam_model');
       localStorage.removeItem('smart_exam_use_proxy');
       localStorage.removeItem('smart_exam_proxy_url');
       localStorage.removeItem('smart_exam_api_key');
       localStorage.removeItem('smart_exam_log_level');
+      localStorage.removeItem('smart_exam_temperature');
       setSaveMessage('✓ Settings reset to defaults');
       setTimeout(() => setSaveMessage(''), 2000);
     }
@@ -168,6 +177,39 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                   : 'Direct mode: your API key is sent straight to Google from your browser. No backend needed.'}
               </p>
             </div>
+          </div>
+
+          {/* AI Temperature */}
+          <div className="border-b border-slate-200 dark:border-slate-700 pb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+              </svg>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">AI Temperature</h3>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={temperature}
+                onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                className="flex-1 accent-indigo-600"
+              />
+              <span className="w-12 text-right font-mono text-sm text-slate-900 dark:text-white">{temperature.toFixed(1)}</span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+              <strong>Default 0.3</strong> — keeps the AI faithful to your uploaded exam wording (recommended).
+              Higher values give the AI more freedom; this may rewrite or paraphrase your original questions and
+              should ONLY be used when generating questions from study material (not pre-written exams).
+            </p>
+            {temperature > 0.3 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-2 font-bold">
+                ⚠ Above 0.3 the AI may alter the wording of your uploaded questions.
+              </p>
+            )}
           </div>
 
           {/* Log Level */}

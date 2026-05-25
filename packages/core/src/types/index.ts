@@ -31,6 +31,18 @@ export interface ExamConfig {
   answerFormat: AnswerFormat;
   contentRange?: string;
   examName?: string;
+  temperature?: number;
+}
+
+export type CaseType = 'A' | 'B';
+
+export interface QuestionBank {
+  documentHash: string;
+  questions: OriginalQuestion[];
+  caseType: CaseType;
+  poolSize: number;
+  createdAt: number;
+  modelUsed: string;
 }
 
 export interface UserAnswer {

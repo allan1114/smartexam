@@ -1,6 +1,6 @@
 
 import { Type, GenerateContentResponse } from "@google/genai";
-import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis } from "../types";
+import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis, CaseType } from "../types";
 import { cleanJsonResponse } from "../utils/fileProcessor";
 import { ApiError, isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
@@ -108,27 +108,29 @@ const fetchWithRetry = async <T>(fn: () => Promise<T>, maxRetries = 3, initialDe
 };
 
 /**
- * Parses a document into structured questions with global sampling and grounding.
- * Improved randomization logic to ensure full coverage and variety.
+ * Extracts a "question bank" from a document — ALL questions in CASE A,
+ * or a large pool in CASE B. Per-attempt sampling is done locally in
+ * questionBank.ts so that each exam attempt yields different questions
+ * without making additional Gemini calls.
+ *
+ * Temperature defaults to 0.3 (verbatim-faithful). Users may override via
+ * Settings; raising it gives the model more freedom (NOT recommended for
+ * CASE A exam files where wording must be preserved).
  */
-export const parseDocumentToQuestions = async (
+export const extractQuestionBank = async (
   source: DocumentSource,
-  count: number = 10,
+  targetPoolSize: number = 30,
   modelName: string = 'gemini-3-flash-preview',
   answerFormat: AnswerFormat = 'AUTO',
   contentRange?: string,
-  documentHash?: string
-): Promise<Question[]> => {
+  temperature: number = 0.3
+): Promise<{ questions: Question[]; caseType: CaseType }> => {
   const finalModelName = getModelName(modelName);
 
-  const rangeText = contentRange ? ` ONLY focus on the following section: "${contentRange}".` : ' Scan the ENTIRE document length to ensure a balanced sampling of questions.';
+  const rangeText = contentRange ? ` ONLY focus on the following section: "${contentRange}".` : ' Scan the ENTIRE document length to extract questions covering all sections.';
 
   const MAX_TEXT_LENGTH = 100000;
   const textContext = source.text ? (source.text.length > MAX_TEXT_LENGTH ? source.text.substring(0, MAX_TEXT_LENGTH) + "... [Truncated]" : source.text) : "";
-  // Use document hash as deterministic seed when available, otherwise fall back to random
-  const randomSeed = documentHash
-    ? Math.abs(parseInt(documentHash, 36)) % 1000000
-    : Math.floor(Math.random() * 1000000);
 
   const apiCall = async () => {
     return await callGeminiViaProxy(
@@ -142,47 +144,53 @@ export const parseDocumentToQuestions = async (
       {
         systemInstruction: `You are a professional exam compiler. Your job is to FAITHFULLY transcribe questions from the source document — never to invent, rephrase, or improve them.
 
-        TASK: Produce exactly ${count} questions from the provided document.${rangeText}
+        TASK: Build a question BANK from the provided document.${rangeText}
 
         ============================================================
-        ABSOLUTE RULE — VERBATIM TRANSCRIPTION (HIGHEST PRIORITY)
+        STEP 1 — CLASSIFY THE DOCUMENT (set 'caseType' in the response)
         ============================================================
-        First, determine which CASE the document falls into:
+        CASE A — The document ALREADY CONTAINS exam questions (numbered items, "Q1", "1.", multiple-choice options A/B/C/D, true/false, etc.).
+        CASE B — The document is STUDY MATERIAL (notes, textbook, article, slides) without pre-written questions.
 
-        CASE A — The document ALREADY CONTAINS exam questions (numbered items, "Q1", "1.", multiple-choice options A/B/C/D, true/false, etc.):
-        ▸ You MUST copy the question text CHARACTER-FOR-CHARACTER from the document. Do not paraphrase, reword, summarize, simplify, fix typos, translate, or "improve" anything.
+        ============================================================
+        STEP 2 — EXTRACT / GENERATE
+        ============================================================
+        If CASE A:
+        ▸ Extract EVERY SINGLE question present in the document. Do NOT impose a maximum count. If the document contains 50 questions, return 50. If 200, return 200.
+        ▸ You MUST copy the question text CHARACTER-FOR-CHARACTER. Do not paraphrase, reword, summarize, simplify, fix typos, translate, or "improve" anything.
         ▸ You MUST copy each option CHARACTER-FOR-CHARACTER. Preserve exact wording, punctuation, capitalization, numbers, units, and ordering.
         ▸ You MUST copy the correct answer EXACTLY as it appears in the document (look for an answer key, answer line, bolded option, or marked answer). If the document does not indicate the correct answer, choose the option whose text matches the document most accurately and put that EXACT option text in 'correctAnswer'.
         ▸ Do NOT invent additional options. If the source has 3 options, return 3. If 5, return 5.
-        ▸ Treat Markdown syntax (**, *, _, #, \`, lists) as PLAIN TEXT to be ignored — extract the underlying text content, not the markup. Do NOT render the markdown as HTML; just strip the markdown syntax characters and use the raw text.
+        ▸ Treat Markdown syntax (**, *, _, #, \`, lists) as PLAIN TEXT to be ignored — extract the underlying text content, not the markup.
         ▸ The 'correctAnswer' field MUST be one of the strings inside the 'options' array — copy/paste exactly.
 
-        CASE B — The document is STUDY MATERIAL (notes, textbook, article, slides) without pre-written questions:
-        ▸ Generate questions strictly grounded in the document's text.
+        If CASE B:
+        ▸ Generate exactly ${targetPoolSize} distinct questions strictly grounded in the document's text. Cover the ENTIRE document — do not cluster around a few sections.
         ▸ Each option must reflect content actually present in the document; do not fabricate facts.
         ▸ The 'correctAnswer' must be the verbatim text of one of the 'options'.
 
         ============================================================
-        SAMPLING & QUALITY RULES
+        QUALITY RULES (BOTH CASES)
         ============================================================
-        1. COVERAGE: Divide the document into ${count} roughly equal segments and select one question per segment to ensure full coverage. Use seed ${randomSeed} as the random anchor.
-        2. NO DUPLICATION: Each question must be distinct and cover a different part of the document.
-        3. SOURCE QUOTE: For every question, provide a 'sourceQuote' — a verbatim excerpt (10-40 words) from the document that directly justifies the correct answer. Copy it character-for-character.
-        4. ANSWER FORMAT: Follow ${answerFormat}.
-        5. EXPLANATION: Keep the explanation concise (1-3 sentences) and grounded in the sourceQuote.
+        1. NO DUPLICATION: Each question must be distinct from every other question in the bank.
+        2. SOURCE QUOTE: For every question, provide a 'sourceQuote' — a verbatim excerpt (10-40 words) from the document that directly justifies the correct answer. Copy it character-for-character.
+        3. ANSWER FORMAT: Follow ${answerFormat}.
+        4. EXPLANATION: Keep the explanation concise (1-3 sentences) and grounded in the sourceQuote.
 
         ============================================================
         OUTPUT
         ============================================================
-        Return a JSON object with key 'questions' containing the list of questions.
+        Return a JSON object with keys:
+          - 'caseType': either 'A' or 'B'
+          - 'questions': the list of questions
         Each question must have: id, question, options, correctAnswer, explanation, sourceQuote, topic.
         The 'correctAnswer' string MUST match one of the 'options' strings exactly (character-for-character).`,
         responseMimeType: "application/json",
-        temperature: 0.3,
-        seed: randomSeed,
+        temperature,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
+            caseType: { type: Type.STRING },
             questions: {
               type: Type.ARRAY,
               items: {
@@ -200,7 +208,7 @@ export const parseDocumentToQuestions = async (
               }
             }
           },
-          required: ["questions"]
+          required: ["caseType", "questions"]
         },
       }
     );
@@ -210,26 +218,29 @@ export const parseDocumentToQuestions = async (
     const response = await fetchWithRetry(apiCall);
     const rawText = response.text;
     if (!rawText) throw new Error("EMPTY_RESPONSE: AI returned an empty result.");
-    
+
     const jsonStr = cleanJsonResponse(rawText);
     let parsed: unknown;
     try {
       parsed = JSON.parse(jsonStr);
     } catch (parseError) {
-      logger.error("JSON parse error from AI response", 'geminiService.parseDocumentToQuestions', { rawTextHead: rawText.substring(0, 200) });
-      throw new Error("PARSING_ERROR: The AI output was not valid JSON. Try reducing the question count.");
+      logger.error("JSON parse error from AI response", 'geminiService.extractQuestionBank', { rawTextHead: rawText.substring(0, 200) });
+      throw new Error("PARSING_ERROR: The AI output was not valid JSON. Try reducing the pool size.");
     }
 
-    const questionsData = typeof parsed === 'object' && parsed !== null && 'questions' in parsed
-      ? (parsed as { questions?: unknown }).questions
+    const parsedObj = (typeof parsed === 'object' && parsed !== null) ? parsed as Record<string, unknown> : {};
+    const questionsData = 'questions' in parsedObj
+      ? parsedObj.questions
       : Array.isArray(parsed) ? parsed : [];
+    const rawCaseType = 'caseType' in parsedObj ? String(parsedObj.caseType).toUpperCase() : '';
+    const caseType: CaseType = rawCaseType === 'A' ? 'A' : 'B';
 
-    const questions = Array.isArray(questionsData) ? questionsData : []; 
-    
+    const questions = Array.isArray(questionsData) ? questionsData : [];
+
     if (questions.length === 0) throw new Error("NO_QUESTIONS: No questions were extracted.");
 
     // Preserve original options/order from AI (verbatim). Display-time shuffling is handled by optionShuffler.
-    return questions
+    const cleaned = questions
       .filter((q: unknown): q is Question => {
         return (
           typeof q === 'object' &&
@@ -240,7 +251,7 @@ export const parseDocumentToQuestions = async (
           'correctAnswer' in q
         );
       })
-      .map((q: Question) => {
+      .map((q: Question, idx: number) => {
         const cleanOption = (t: string) => String(t).replace(/^[A-E][).]\s*/i, '').trim();
         const normalizedCorrect = cleanOption(q.correctAnswer);
         const matchingOption = q.options.find(
@@ -249,20 +260,47 @@ export const parseDocumentToQuestions = async (
 
         return {
           ...q,
+          id: idx + 1,
           correctAnswer: matchingOption || q.correctAnswer
         };
       });
+
+    return { questions: cleaned, caseType };
   } catch (error: unknown) {
     const errorObj = error instanceof Error ? error : new Error(String(error));
-    logger.error("Failed to parse document into questions", 'geminiService.parseDocumentToQuestions', errorObj);
+    logger.error("Failed to extract question bank", 'geminiService.extractQuestionBank', errorObj);
     const msg = errorObj.message;
-    
+
     if (msg.includes('Rpc failed') || msg.includes('Code 6')) {
       throw new Error(`NETWORK_TIMEOUT: 連線至 AI 伺服器時發生 RPC 錯誤 (Code 6)。請嘗試：1. 減少題目數量 2. 稍後再試一次。`);
     }
-    
+
     throw new Error(`GENERATION_FAILED: ${msg}`);
   }
+};
+
+/**
+ * Backward-compatible wrapper. New code should call extractQuestionBank directly.
+ * @deprecated Use extractQuestionBank + local sampling via questionBank utility.
+ */
+export const parseDocumentToQuestions = async (
+  source: DocumentSource,
+  count: number = 10,
+  modelName: string = 'gemini-3-flash-preview',
+  answerFormat: AnswerFormat = 'AUTO',
+  contentRange?: string,
+  _documentHash?: string,
+  temperature: number = 0.3
+): Promise<Question[]> => {
+  const { questions } = await extractQuestionBank(
+    source,
+    Math.max(count * 3, 30),
+    modelName,
+    answerFormat,
+    contentRange,
+    temperature
+  );
+  return questions.slice(0, count);
 };
 
 export const refineMasteryInsight = async (
