@@ -1,12 +1,15 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ExamConfig, ExamMode, QuestionOrder, AnswerFormat } from '../types';
+import { loadQuestionBank } from '../utils/questionBank';
 
 interface ExamSetupProps {
   onStart: (config: ExamConfig) => void;
+  docHash?: string | null;
+  onRegenerateBank?: (docHash: string) => void;
 }
 
-const ExamSetup: React.FC<ExamSetupProps> = ({ onStart }) => {
+const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBank }) => {
   const [examName, setExamName] = useState('');
   const [mode, setMode] = useState<ExamMode>('MOCK');
   const [order, setOrder] = useState<QuestionOrder>('SEQUENTIAL');
@@ -15,10 +18,30 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart }) => {
   const [questionCount, setQuestionCount] = useState(10);
   const [selectedModel, setSelectedModel] = useState('gemini-3-flash-preview');
   const [contentRange, setContentRange] = useState('');
+  const [bankInfo, setBankInfo] = useState<{ poolSize: number; caseType: 'A' | 'B' } | null>(null);
+
+  useEffect(() => {
+    if (docHash) {
+      const bank = loadQuestionBank(docHash);
+      setBankInfo(bank ? { poolSize: bank.poolSize, caseType: bank.caseType } : null);
+    } else {
+      setBankInfo(null);
+    }
+  }, [docHash]);
+
+  const handleRegenerate = () => {
+    if (!docHash || !onRegenerateBank) return;
+    if (confirm('Regenerate question bank? The AI will re-analyze the document on the next exam. This deletes the cached pool.')) {
+      onRegenerateBank(docHash);
+      setBankInfo(null);
+    }
+  };
 
   const durations = [30, 60, 90, 120, 150, 180, 210, 240];
 
   const handleStart = () => {
+    const savedTemp = parseFloat(localStorage.getItem('smart_exam_temperature') || '0.3');
+    const temperature = Number.isFinite(savedTemp) ? Math.min(1, Math.max(0, savedTemp)) : 0.3;
     onStart({
       examName: examName.trim() || undefined,
       mode,
@@ -27,14 +50,31 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart }) => {
       model: selectedModel,
       questionOrder: order,
       answerFormat: answerFormat as AnswerFormat,
-      contentRange: contentRange.trim() || undefined
+      contentRange: contentRange.trim() || undefined,
+      temperature
     });
   };
 
   return (
     <div className="max-w-2xl mx-auto bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-8 animate-fade-in transition-colors">
       <h2 className="text-3xl font-bold mb-8 text-center text-slate-900 dark:text-white tracking-tight">Configure Your Session</h2>
-      
+
+      {bankInfo && (
+        <div className="mb-6 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 flex items-start justify-between gap-4">
+          <div className="text-sm text-emerald-900 dark:text-emerald-200">
+            <p className="font-bold">Question bank ready ({bankInfo.poolSize} questions, CASE {bankInfo.caseType})</p>
+            <p className="text-xs mt-1 opacity-80">Each new exam will sample a different subset locally — no extra AI calls. Click <em>Regenerate</em> to re-analyze the document.</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleRegenerate}
+            className="shrink-0 px-3 py-2 text-xs font-bold rounded-lg bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-slate-600 transition"
+          >
+            Regenerate
+          </button>
+        </div>
+      )}
+
       <div className="space-y-8">
         {/* Exam Name */}
         <div>

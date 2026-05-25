@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppState, ExamConfig, Question, ExamResult, UserAnswer, DocumentSource } from './types';
-import { parseDocumentToQuestions } from './services/geminiService';
+import { extractQuestionBank } from './services/geminiService';
+import { loadQuestionBank, saveQuestionBank, sampleQuestionsFromBank, deleteQuestionBank } from './utils/questionBank';
 import { generateUniqueId } from './utils/fileProcessor';
 import { logger } from './utils/logger';
 import {
@@ -114,21 +115,40 @@ const App: React.FC = () => {
     setIsRetaking(false);
 
     try {
-      // Generate document hash before calling Gemini for deterministic seeding
+      // Generate document hash for cache lookup (also used by sessionStorage layer)
       const docHash = generateDocumentHash(docSource.text, docSource.fileData);
       setDocumentHash(docHash);
 
-      const generatedQuestions = await parseDocumentToQuestions(
-        docSource,
-        examConfig.totalQuestions,
-        examConfig.model,
-        examConfig.answerFormat,
-        examConfig.contentRange,
-        docHash
-      );
+      // 1) Try to reuse an existing question bank for this document.
+      //    The bank is built ONCE per document — subsequent exams sample from it
+      //    locally with Math.random(), guaranteeing variety across attempts and
+      //    zero additional Gemini calls.
+      let bank = loadQuestionBank(docHash);
+      if (!bank) {
+        const targetPoolSize = Math.max(examConfig.totalQuestions * 3, 30);
+        const { questions: bankQuestions, caseType } = await extractQuestionBank(
+          docSource,
+          targetPoolSize,
+          examConfig.model,
+          examConfig.answerFormat,
+          examConfig.contentRange,
+          examConfig.temperature ?? 0.3
+        );
+        if (!bankQuestions || bankQuestions.length === 0) {
+          throw new Error("NO_QUESTIONS_FOUND: AI failed to extract any valid questions from the document.");
+        }
+        bank = saveQuestionBank({
+          documentHash: docHash,
+          questions: bankQuestions,
+          caseType,
+          modelUsed: examConfig.model,
+        });
+      }
 
+      // 2) Sample N questions locally — different subset on every call.
+      const generatedQuestions = sampleQuestionsFromBank(bank, examConfig.totalQuestions);
       if (!generatedQuestions || generatedQuestions.length === 0) {
-        throw new Error("NO_QUESTIONS_FOUND: AI failed to extract any valid questions from the document.");
+        throw new Error("NO_QUESTIONS_FOUND: Question bank is empty.");
       }
 
       // Save original questions to localStorage (Level 1 - preserves 100% integrity)
@@ -398,7 +418,13 @@ const App: React.FC = () => {
             onViewResult={viewHistoryResult}
           />
         )}
-        {currentState === AppState.SETUP && <ExamSetup onStart={startExam} />}
+        {currentState === AppState.SETUP && (
+          <ExamSetup
+            onStart={startExam}
+            docHash={docSource ? generateDocumentHash(docSource.text, docSource.fileData) : null}
+            onRegenerateBank={(hash) => deleteQuestionBank(hash)}
+          />
+        )}
         {currentState === AppState.LOADING && <LoadingScreen />}
         {currentState === AppState.EXAM && config && questions.length > 0 && (
           <ExamPortal questions={questions} config={config} onFinish={finishExam} />
