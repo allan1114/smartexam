@@ -44,7 +44,13 @@ export const isRetryableError = (error: unknown): boolean => {
     'NetworkError',
     'deadline exceeded',
     'ECONNREFUSED',
-    'ENOTFOUND'
+    'ENOTFOUND',
+    '429',
+    'UNAVAILABLE',
+    'RESOURCE_EXHAUSTED',
+    'overloaded',
+    'rate limit',
+    'high demand'
   ];
 
   return retryablePatterns.some(pattern =>

@@ -185,7 +185,7 @@ const App: React.FC = () => {
       startTime: Date.now(),
       endTime: Date.now(),
       mode: config?.mode || 'MOCK',
-      model: config?.model || 'gemini-3-flash-preview',
+      model: config?.model || 'gemini-2.5-flash',
       customName: config?.examName,
       examSessionId: currentExamSessionId || undefined,
       retakeOf: isRetaking ? results?.id : undefined

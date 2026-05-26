@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ExamConfig, ExamMode, QuestionOrder, AnswerFormat } from '../types';
 import { loadQuestionBank } from '../utils/questionBank';
+import { DEFAULT_MODEL } from '../constants/models';
 
 interface ExamSetupProps {
   onStart: (config: ExamConfig) => void;
@@ -16,7 +17,10 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
   const [answerFormat, setAnswerFormat] = useState('AUTO');
   const [duration, setDuration] = useState(60);
   const [questionCount, setQuestionCount] = useState(10);
-  const [selectedModel, setSelectedModel] = useState('gemini-3-flash-preview');
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_exam_model') : null;
+    return saved || DEFAULT_MODEL;
+  });
   const [contentRange, setContentRange] = useState('');
   const [bankInfo, setBankInfo] = useState<{ poolSize: number; caseType: 'A' | 'B' } | null>(null);
 
@@ -130,23 +134,26 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
         <div>
           <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">AI Engine</label>
           <div className="grid grid-cols-2 gap-3">
-            <button 
+            <button
               type="button"
-              onClick={() => setSelectedModel('gemini-3-flash-preview')}
-              className={`p-3 rounded-xl border-2 transition-all flex flex-col text-left ${selectedModel === 'gemini-3-flash-preview' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-100 dark:border-slate-700 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600'}`}
+              onClick={() => setSelectedModel('gemini-2.5-flash')}
+              className={`p-3 rounded-xl border-2 transition-all flex flex-col text-left ${selectedModel === 'gemini-2.5-flash' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-100 dark:border-slate-700 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600'}`}
             >
-              <span className="font-bold text-xs">Gemini 3 Flash</span>
-              <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-1">Recommended for speed.</span>
+              <span className="font-bold text-xs">Gemini 2.5 Flash</span>
+              <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-1">Stable GA · best uptime.</span>
             </button>
-            <button 
+            <button
               type="button"
-              onClick={() => setSelectedModel('gemini-3-pro-preview')}
-              className={`p-3 rounded-xl border-2 transition-all flex flex-col text-left ${selectedModel === 'gemini-3-pro-preview' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-100 dark:border-slate-700 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600'}`}
+              onClick={() => setSelectedModel('gemini-2.5-pro')}
+              className={`p-3 rounded-xl border-2 transition-all flex flex-col text-left ${selectedModel === 'gemini-2.5-pro' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-100 dark:border-slate-700 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600'}`}
             >
-              <span className="font-bold text-xs">Gemini 3 Pro</span>
+              <span className="font-bold text-xs">Gemini 2.5 Pro</span>
               <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-1">Best for complex reasoning.</span>
             </button>
           </div>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-2">
+            Use <strong>Settings ⚙️</strong> to pick newer models (3 Flash, 3.5 Flash, 3.1 Pro …). Overloaded models auto-fall back to 2.5 Flash.
+          </p>
         </div>
 
         {/* Mode Selection */}
