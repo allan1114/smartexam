@@ -428,10 +428,19 @@ SmartExam 包括一個全面的**設置面板**，用於在不進行代碼更改
 - **清除金鑰**：選項以刪除存儲的金鑰
 
 #### 🤖 AI 模型選擇
-- **Gemini 3 Flash**（預設）
-- **Gemini 2.0 Flash**
-- **Gemini 2.0 Pro**
-- **Gemini 2.0 Flash 實驗版**
+支援 Google AI Studio 所有 Text-out 模型：
+- **Gemini 3.5 Flash** · 最新快速模型
+- **Gemini 3.1 Pro** · 最新進階推理
+- **Gemini 3.1 Flash Lite** · 輕量級快速
+- **Gemini 3 Flash** · 熱門 Flash 模型
+- **Gemini 2.5 Pro** · GA 進階模型（推薦）
+- **Gemini 2.5 Flash** · GA 穩定平衡（預設）
+- **Gemini 2.5 Flash Lite** · 輕量級 2.5
+- **Gemini 2.0 Flash** · 可靠舊版 Flash
+- **Gemini 2.0 Flash Lite** · 最便宜 2.0
+- **Gemma 4 31B** · 開源備用模型
+
+**⚡ 自動容量管理**：若選中的模型過載，應用自動切換到穩定模型（通常 `gemini-2.5-flash`），確保考試不中斷。
 
 #### 🔄 代理配置（生產環境）
 - **啟用 API 代理**：為生產部署使用後端代理
@@ -484,23 +493,36 @@ SmartExam 包括一個全面的**設置面板**，用於在不進行代碼更改
 
 部署 SmartExam 的最簡單方法是使用 GitHub Pages 和自動 GitHub Actions 部署：
 
-#### 自動部署（推薦）
+#### 自動部署（推薦 ⭐）
 
 GitHub Actions 在每次推送到 `main` 時自動構建並部署到 GitHub Pages：
 
 1. 只需推送到 main 分支
-2. 工作流運行：構建應用並部署到 `https://allan1114.github.io/smartexam/`
+2. 工作流自動運行兩個部署步驟：
+   - ✅ 通過 `actions/deploy-pages` 部署到 GitHub Pages
+   - ✅ 同步 `packages/web/dist` 到 `gh-pages` branch（用於 branch-based source）
+3. 應用發佈到 `https://allan1114.github.io/smartexam/`
 
-#### 手動部署
+**工作流細節**：`.github/workflows/deploy-github-pages.yml` 包括：
+- 構建 web 應用
+- 寫入 `404.html` + `.nojekyll`（SPA 路由支持）
+- 上傳 Pages artifact
+- 推送至 `gh-pages` branch（force-orphan，保持乾淨歷史）
+
+#### 手動部署（備用）
 
 ```bash
 # 構建 web 應用
 npm run build:web
 
-# 部署到 gh-pages 分支
+# 方法 A：推送到 gh-pages 分支
 git add packages/web/dist -f
 git commit -m "Deploy to GitHub Pages"
 git subtree push --prefix packages/web/dist origin gh-pages
+
+# 方法 B：使用 peaceiris/actions-gh-pages（本地）
+npm install -g gh-pages
+gh-pages -d packages/web/dist
 ```
 
 ### 部署到 Vercel（生產環境推薦）
