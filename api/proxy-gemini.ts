@@ -74,16 +74,18 @@ export default async (req: VercelRequest, res: VercelResponse) => {
       });
     }
 
-    // 允許的 Gemini 模型列表
+    // 允許的 Gemini 模型列表 — must stay in sync with packages/core/src/constants/models.ts
     const allowedModels = [
-      'gemini-3-flash-preview',
-      'gemini-2.5-pro-preview-05-06',
-      'gemini-2.5-flash-preview-04-17',
+      'gemini-3.5-flash',
+      'gemini-3.1-pro',
+      'gemini-3.1-flash-lite',
+      'gemini-3-flash',
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
       'gemini-2.0-flash',
-      'gemini-2.0-flash-exp',
-      'gemini-2.0-pro-exp-02-05',
-      'gemini-1.5-pro',
-      'gemini-1.5-flash',
+      'gemini-2.0-flash-lite',
+      'gemma-4-31b-it',
     ];
 
     if (!allowedModels.includes(model)) {
@@ -130,6 +132,13 @@ export default async (req: VercelRequest, res: VercelResponse) => {
         return res.status(429).json({
           error: 'API_LIMIT',
           message: 'The server is busy. Please wait a few moments.'
+        });
+      }
+
+      if (response.status === 503) {
+        return res.status(503).json({
+          error: 'MODEL_OVERLOADED',
+          message: `Model ${model} is currently overloaded. Try a different model or retry.`
         });
       }
 

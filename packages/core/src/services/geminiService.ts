@@ -4,6 +4,7 @@ import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis
 import { cleanJsonResponse } from "../utils/fileProcessor";
 import { ApiError, isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
+import { DEFAULT_MODEL, getFallbackModel, isOverloadError } from "../constants/models";
 
 const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -78,9 +79,47 @@ const callGeminiViaProxy = async (
 /**
  * Get model name from localStorage first, then fallback to default
  */
-const getModelName = (defaultModel: string = 'gemini-3-flash-preview'): string => {
+const getModelName = (defaultModel: string = DEFAULT_MODEL): string => {
   const savedModel = localStorage.getItem('smart_exam_model');
   return savedModel || defaultModel;
+};
+
+/**
+ * Run an API call, and if it fails because the upstream model is overloaded
+ * (429 / 503 / RESOURCE_EXHAUSTED / "high demand"), retry once with a stable
+ * fallback model and surface a hint to the UI on which model actually ran.
+ */
+const callWithFallback = async <T>(
+  primaryModel: string,
+  run: (model: string) => Promise<T>
+): Promise<T> => {
+  try {
+    return await run(primaryModel);
+  } catch (err) {
+    if (!isOverloadError(err)) throw err;
+    const fallback = getFallbackModel(primaryModel);
+    if (fallback === primaryModel) throw err;
+    logger.warn(
+      `Model ${primaryModel} overloaded — falling back to ${fallback}`,
+      'geminiService.callWithFallback'
+    );
+    try {
+      const result = await run(fallback);
+      try {
+        sessionStorage.setItem(
+          'smart_exam_last_fallback',
+          JSON.stringify({ from: primaryModel, to: fallback, at: Date.now() })
+        );
+      } catch {}
+      return result;
+    } catch (fallbackErr) {
+      const originalMsg = err instanceof Error ? err.message : String(err);
+      const fbMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      throw new Error(
+        `MODEL_OVERLOADED: ${primaryModel} 過載 (${originalMsg.substring(0, 120)})。已嘗試 fallback ${fallback} 仍失敗 (${fbMsg.substring(0, 120)})。請稍後再試或喺 Settings 揀另一個 model。`
+      );
+    }
+  }
 };
 
 /**
@@ -120,7 +159,7 @@ const fetchWithRetry = async <T>(fn: () => Promise<T>, maxRetries = 3, initialDe
 export const extractQuestionBank = async (
   source: DocumentSource,
   targetPoolSize: number = 30,
-  modelName: string = 'gemini-3-flash-preview',
+  modelName: string = DEFAULT_MODEL,
   answerFormat: AnswerFormat = 'AUTO',
   contentRange?: string,
   temperature: number = 0.3
@@ -132,9 +171,9 @@ export const extractQuestionBank = async (
   const MAX_TEXT_LENGTH = 100000;
   const textContext = source.text ? (source.text.length > MAX_TEXT_LENGTH ? source.text.substring(0, MAX_TEXT_LENGTH) + "... [Truncated]" : source.text) : "";
 
-  const apiCall = async () => {
+  const apiCall = async (modelOverride: string) => {
     return await callGeminiViaProxy(
-      finalModelName,
+      modelOverride,
       {
         parts: [
           { text: source.text ? `DOCUMENT CONTENT:\n${textContext}` : "Analyze the attached file and extract questions from its content." },
@@ -215,7 +254,7 @@ export const extractQuestionBank = async (
   };
 
   try {
-    const response = await fetchWithRetry(apiCall);
+    const response = await callWithFallback(finalModelName, (m) => fetchWithRetry(() => apiCall(m)));
     const rawText = response.text;
     if (!rawText) throw new Error("EMPTY_RESPONSE: AI returned an empty result.");
 
@@ -286,7 +325,7 @@ export const extractQuestionBank = async (
 export const parseDocumentToQuestions = async (
   source: DocumentSource,
   count: number = 10,
-  modelName: string = 'gemini-3-flash-preview',
+  modelName: string = DEFAULT_MODEL,
   answerFormat: AnswerFormat = 'AUTO',
   contentRange?: string,
   _documentHash?: string,
@@ -307,21 +346,21 @@ export const refineMasteryInsight = async (
   question: string,
   options: string[],
   correctAnswer: string,
-  modelName: string = 'gemini-3-flash-preview'
+  modelName: string = DEFAULT_MODEL
 ): Promise<string> => {
   const finalModelName = getModelName(modelName);
   const prompt = `Provide a detailed "Mastery Insight" for this exam question: "${question}". Correct answer: "${correctAnswer}". Explain the underlying concept deeply and why other options might be confusing.`;
 
-  const apiCall = async () => {
+  const apiCall = async (modelOverride: string) => {
     return await callGeminiViaProxy(
-      finalModelName,
+      modelOverride,
       { parts: [{ text: prompt }] },
       { temperature: 0.5 }
     );
   };
 
   try {
-    const response = await fetchWithRetry(apiCall);
+    const response = await callWithFallback(finalModelName, (m) => fetchWithRetry(() => apiCall(m)));
     return response.text || "No further insight available.";
   } catch (error) {
     return "Failed to connect to AI for insights. Please check your connection.";
@@ -338,7 +377,7 @@ export const getChatbotResponse = async (
   message: string,
   context: string
 ): Promise<string> => {
-  const modelName = getModelName('gemini-3-flash-preview');
+  const modelName = getModelName(DEFAULT_MODEL);
   const contents = [
     ...history.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model',
@@ -347,9 +386,9 @@ export const getChatbotResponse = async (
     { role: 'user', parts: [{ text: message }] }
   ];
 
-  const apiCall = async () => {
+  const apiCall = async (modelOverride: string) => {
     return await callGeminiViaProxy(
-      modelName,
+      modelOverride,
       { parts: contents },
       {
         temperature: 0.7,
@@ -359,7 +398,7 @@ export const getChatbotResponse = async (
   };
 
   try {
-    const response = await fetchWithRetry(apiCall);
+    const response = await callWithFallback(modelName, (m) => fetchWithRetry(() => apiCall(m)));
     return response.text || "";
   } catch (error) {
     return "目前連線不穩定，請稍後再試。";
@@ -370,15 +409,15 @@ export const generatePerformanceAnalysis = async (
   questions: Question[],
   answers: UserAnswer[]
 ): Promise<PerformanceAnalysis> => {
-  const modelName = getModelName('gemini-3-flash-preview');
+  const modelName = getModelName(DEFAULT_MODEL);
   const summary = questions.map(q => ({
     topic: q.topic,
     correct: answers.find(a => a.questionId === q.id)?.isCorrect
   }));
 
-  const apiCall = async () => {
+  const apiCall = async (modelOverride: string) => {
     return await callGeminiViaProxy(
-      modelName,
+      modelOverride,
       {
         parts: [{ text: `Analyze this exam performance data and provide constructive feedback in a encouraging tone: ${JSON.stringify(summary)}` }]
       },
@@ -400,7 +439,7 @@ export const generatePerformanceAnalysis = async (
   };
 
   try {
-    const response = await fetchWithRetry(apiCall);
+    const response = await callWithFallback(modelName, (m) => fetchWithRetry(() => apiCall(m)));
     const text = response.text;
     if (!text) throw new Error("No analysis received");
     return JSON.parse(cleanJsonResponse(text)) as PerformanceAnalysis;

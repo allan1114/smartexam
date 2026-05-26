@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AI_MODELS, DEFAULT_MODEL } from '../constants/models';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -6,7 +7,7 @@ interface SettingsProps {
 }
 
 const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
-  const [model, setModel] = useState('gemini-3-flash-preview');
+  const [model, setModel] = useState(DEFAULT_MODEL);
   const [useProxy, setUseProxy] = useState(false);
   const [proxyUrl, setProxyUrl] = useState('/api/proxy-gemini');
   const [apiKey, setApiKey] = useState('');
@@ -51,7 +52,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
 
   const handleResetSettings = () => {
     if (confirm('Reset all settings to defaults?')) {
-      setModel('gemini-3-flash-preview');
+      setModel(DEFAULT_MODEL);
       setUseProxy(false);
       setProxyUrl('/api/proxy-gemini');
       setApiKey('');
@@ -108,15 +109,14 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
               onChange={(e) => setModel(e.target.value)}
               className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast & Efficient)</option>
-              <option value="gemini-2.5-pro-preview-05-06">Gemini 2.5 Pro (Most Capable)</option>
-              <option value="gemini-2.5-flash-preview-04-17">Gemini 2.5 Flash</option>
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-              <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Experimental</option>
-              <option value="gemini-2.0-pro-exp-02-05">Gemini 2.0 Pro (Advanced)</option>
+              {AI_MODELS.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.description})
+                </option>
+              ))}
             </select>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-              Different models have different speeds and capabilities. Flash models are faster, Pro models are more accurate.
+              Flash models are faster; Pro models are more accurate. If a model is busy, the app auto-falls back to <code>gemini-2.5-flash</code>.
             </p>
           </div>
 
