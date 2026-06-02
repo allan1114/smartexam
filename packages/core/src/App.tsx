@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppState, ExamConfig, Question, ExamResult, UserAnswer, DocumentSource } from './types';
 import { extractQuestionBank } from './services/geminiService';
-import { loadQuestionBank, saveQuestionBank, sampleQuestionsFromBank, deleteQuestionBank } from './utils/questionBank';
+import { loadQuestionBank, saveQuestionBank, sampleQuestionsFromBank, deleteQuestionBank, appendToQuestionBank } from './utils/questionBank';
 import { generateUniqueId } from './utils/fileProcessor';
+import { saveDocument, listDocuments, loadDocument, deleteDocument, touchDocument, SavedDocument } from './utils/documentLibrary';
 import { logger } from './utils/logger';
 import {
   saveExamSession,
@@ -43,6 +44,7 @@ const App: React.FC = () => {
   const [currentExamSessionId, setCurrentExamSessionId] = useState<string | null>(null);
   const [isRetaking, setIsRetaking] = useState(false);
   const [documentHash, setDocumentHash] = useState<string | null>(null);
+  const [savedDocuments, setSavedDocuments] = useState<SavedDocument[]>([]);
 
   useEffect(() => {
     // Initialize Theme
@@ -77,6 +79,13 @@ const App: React.FC = () => {
       logger.error("Exam history JSON is corrupt, resetting to empty", "App.initialization", e);
       setHistory([]);
     }
+
+    // Load previously saved documents (so users can re-open without re-uploading).
+    try {
+      setSavedDocuments(listDocuments());
+    } catch (e) {
+      logger.warn("Failed to load saved documents", "App.initialization", e);
+    }
   }, []);
 
   const toggleTheme = () => {
@@ -95,7 +104,32 @@ const App: React.FC = () => {
 
   const handleSourceLoaded = useCallback((source: DocumentSource) => {
     setDocSource(source);
+    // Persist the document for future re-use (best-effort; never blocks the flow).
+    const saved = saveDocument(source);
+    if (saved) setSavedDocuments(listDocuments());
     setCurrentState(AppState.SETUP);
+  }, []);
+
+  const handleSelectSavedDocument = useCallback((doc: SavedDocument) => {
+    const restored = loadDocument(doc.hash);
+    if (!restored) {
+      // File-kind docs intentionally don't store their bytes — ask to re-upload.
+      setError({
+        message: `「${doc.name}」是 PDF/圖片檔，為節省空間未儲存檔案內容，請重新上傳該檔案。`,
+        type: 'REUPLOAD_REQUIRED',
+      });
+      return;
+    }
+    touchDocument(doc.hash);
+    setSavedDocuments(listDocuments());
+    setError(null);
+    setDocSource(restored);
+    setCurrentState(AppState.SETUP);
+  }, []);
+
+  const handleDeleteSavedDocument = useCallback((hash: string) => {
+    deleteDocument(hash);
+    setSavedDocuments(listDocuments());
   }, []);
 
   const shuffleQuestions = (array: Question[]): Question[] => {
@@ -143,6 +177,39 @@ const App: React.FC = () => {
           caseType,
           modelUsed: examConfig.model,
         });
+      }
+
+      // 1b) HONOR THE REQUESTED COUNT. If the cached/just-built bank holds fewer
+      //     questions than the user asked for (e.g. a short doc, or a bank that
+      //     was originally built for a smaller exam), top it up by generating the
+      //     deficit and merging (de-duplicated) until we have enough.
+      const TOPUP_MAX_ATTEMPTS = 3;
+      let topupAttempts = 0;
+      while (bank.questions.length < examConfig.totalQuestions && topupAttempts < TOPUP_MAX_ATTEMPTS) {
+        topupAttempts++;
+        const deficit = examConfig.totalQuestions - bank.questions.length;
+        const requestSize = Math.max(deficit * 2, 10);
+        const before = bank.questions.length;
+        const { questions: extra } = await extractQuestionBank(
+          docSource,
+          requestSize,
+          examConfig.model,
+          examConfig.answerFormat,
+          examConfig.contentRange,
+          examConfig.temperature ?? 0.3
+        );
+        const merged = extra && extra.length > 0 ? appendToQuestionBank(docHash, extra) : null;
+        if (merged) bank = merged;
+        // No net-new unique questions this round → the document can't yield more.
+        if (bank.questions.length <= before) break;
+      }
+
+      // If we still can't reach the requested count, tell the user the real max
+      // instead of silently handing back fewer questions.
+      if (bank.questions.length < examConfig.totalQuestions) {
+        throw new Error(
+          `NOT_ENOUGH_QUESTIONS: 呢份文件最多只能生成 ${bank.questions.length} 題，但你揀咗 ${examConfig.totalQuestions} 題。請將題目數量調至 ${bank.questions.length} 或以下再試。`
+        );
       }
 
       // 2) Sample N questions locally — different subset on every call.
@@ -375,6 +442,8 @@ const App: React.FC = () => {
     if (error.type === 'NO_QUESTIONS_FOUND') advice = "Ensure your document contains clear test questions with numbering (1, 2, 3) and options (A, B, C, D).";
     if (error.type === 'API_LIMIT') advice = "The server is busy. Please wait a few moments.";
     if (error.type === 'SAFETY_BLOCK') advice = "The content was rejected by the AI safety filters.";
+    if (error.type === 'NOT_ENOUGH_QUESTIONS') advice = "請在考試設定中將題目數量調低，或改用內容更豐富的文件。";
+    if (error.type === 'REUPLOAD_REQUIRED') advice = "切換到「Upload File」分頁重新上傳該 PDF/圖片即可。";
 
     return (
       <div className="mb-6 p-5 bg-red-50 border-l-4 border-red-500 rounded-r-xl shadow-sm animate-slide-up flex items-start space-x-4 dark:bg-red-900/20 dark:border-red-600">
@@ -408,14 +477,17 @@ const App: React.FC = () => {
         {renderError()}
 
         {currentState === AppState.HOME && (
-          <Home 
-            onDocLoaded={handleSourceLoaded} 
-            history={history} 
+          <Home
+            onDocLoaded={handleSourceLoaded}
+            history={history}
             onDeleteHistory={deleteHistory}
             onRenameHistory={renameHistory}
             onImportHistory={importHistory}
             onClearAllHistory={clearAllHistory}
             onViewResult={viewHistoryResult}
+            savedDocuments={savedDocuments}
+            onSelectDocument={handleSelectSavedDocument}
+            onDeleteDocument={handleDeleteSavedDocument}
           />
         )}
         {currentState === AppState.SETUP && (

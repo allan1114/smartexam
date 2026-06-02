@@ -20,6 +20,8 @@ export interface DocumentSource {
     data: string; // base64
     mimeType: string;
   };
+  /** Optional human-friendly name (e.g. original filename) used by the saved-documents library. */
+  name?: string;
 }
 
 export interface ExamConfig {

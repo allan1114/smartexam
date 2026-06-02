@@ -67,6 +67,52 @@ export const saveQuestionBank = (params: {
   return bank;
 };
 
+const normalizeQuestionText = (q: string): string =>
+  q.trim().toLowerCase().replace(/\s+/g, ' ');
+
+/**
+ * Merge freshly generated questions into an existing bank, de-duplicating by
+ * normalized question text. Used by the "top-up" flow when the cached pool is
+ * smaller than the number of questions the user asked for, so the requested
+ * count is always honored. Returns the updated bank.
+ */
+export const appendToQuestionBank = (
+  documentHash: string,
+  newQuestions: Question[]
+): QuestionBank | null => {
+  const existing = loadQuestionBank(documentHash);
+  if (!existing) return null;
+
+  const seen = new Set(existing.questions.map(q => normalizeQuestionText(q.question)));
+  const toAdd = newQuestions.filter(q => {
+    const key = normalizeQuestionText(q.question);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  if (toAdd.length === 0) return existing;
+
+  const merged: QuestionBank = {
+    ...existing,
+    questions: [...existing.questions, ...deepCloneAsLocked(toAdd)],
+    poolSize: existing.questions.length + toAdd.length,
+  };
+
+  try {
+    localStorage.setItem(BANK_KEY_PREFIX + documentHash, JSON.stringify(merged));
+    logger.info(
+      `Question bank topped up: ${documentHash} (+${toAdd.length}, poolSize=${merged.poolSize})`,
+      'questionBank.appendToQuestionBank'
+    );
+  } catch (e) {
+    logger.error('Failed to append to question bank', 'questionBank.appendToQuestionBank', e);
+    return existing;
+  }
+
+  return merged;
+};
+
 export const deleteQuestionBank = (documentHash: string): void => {
   try {
     localStorage.removeItem(BANK_KEY_PREFIX + documentHash);
