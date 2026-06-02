@@ -4,12 +4,35 @@ import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis
 import { cleanJsonResponse } from "../utils/fileProcessor";
 import { ApiError, isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
-import { DEFAULT_MODEL, getFallbackModel, isOverloadError } from "../constants/models";
+import { DEFAULT_MODEL, getFallbackModel, isOverloadError, isModelUnavailableError } from "../constants/models";
 
 const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
+// Hard ceiling on a single generateContent request so a hung connection can't
+// block exam creation indefinitely.
+const REQUEST_TIMEOUT_MS = 90000;
+
 const extractText = (data: any): string =>
   data?.candidates?.[0]?.content?.parts?.[0]?.text ?? data?.text ?? '';
+
+/**
+ * fetch() wrapper that aborts after REQUEST_TIMEOUT_MS. A timeout is surfaced as
+ * a retryable "deadline exceeded" error (see isRetryableError).
+ */
+const fetchWithTimeout = async (input: string, init: RequestInit): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`NETWORK_TIMEOUT: 請求超過 ${REQUEST_TIMEOUT_MS / 1000}s 未完成 (deadline exceeded)。請減少題目數量或稍後再試。`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 /**
  * Call Gemini API — proxy mode (Vercel/backend) or direct mode (browser API key).
@@ -30,7 +53,7 @@ const callGeminiViaProxy = async (
   }
 
   if (!useProxy && apiKey) {
-    const { systemInstruction, responseMimeType, temperature, seed, responseSchema } = config || {};
+    const { systemInstruction, responseMimeType, temperature, seed, responseSchema, maxOutputTokens } = config || {};
     const contentsArray = Array.isArray(contents)
       ? contents
       : [{ role: 'user', parts: contents.parts || [{ text: JSON.stringify(contents) }] }];
@@ -45,10 +68,11 @@ const callGeminiViaProxy = async (
         ...(temperature !== undefined && { temperature }),
         ...(seed !== undefined && { seed }),
         ...(responseSchema && { responseSchema }),
+        ...(maxOutputTokens !== undefined && { maxOutputTokens }),
       },
     };
 
-    const resp = await fetch(`${GEMINI_DIRECT_BASE}/${model}:generateContent?key=${apiKey}`, {
+    const resp = await fetchWithTimeout(`${GEMINI_DIRECT_BASE}/${model}:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -62,7 +86,7 @@ const callGeminiViaProxy = async (
     return { text: extractText(await resp.json()) };
   }
 
-  const resp = await fetch(proxyUrl, {
+  const resp = await fetchWithTimeout(proxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, contents, config }),
@@ -96,11 +120,15 @@ const callWithFallback = async <T>(
   try {
     return await run(primaryModel);
   } catch (err) {
-    if (!isOverloadError(err)) throw err;
+    // Fall back both when the model is transiently overloaded (429/503) AND when
+    // the chosen model id is invalid/unavailable (400/404 "model not found") —
+    // the latter previously surfaced as a hard error with no recovery.
+    if (!isOverloadError(err) && !isModelUnavailableError(err)) throw err;
     const fallback = getFallbackModel(primaryModel);
     if (fallback === primaryModel) throw err;
+    const reason = isOverloadError(err) ? 'overloaded' : 'unavailable/invalid';
     logger.warn(
-      `Model ${primaryModel} overloaded — falling back to ${fallback}`,
+      `Model ${primaryModel} ${reason} — falling back to ${fallback}`,
       'geminiService.callWithFallback'
     );
     try {
@@ -171,6 +199,10 @@ export const extractQuestionBank = async (
   const MAX_TEXT_LENGTH = 100000;
   const textContext = source.text ? (source.text.length > MAX_TEXT_LENGTH ? source.text.substring(0, MAX_TEXT_LENGTH) + "... [Truncated]" : source.text) : "";
 
+  // Reassignable so a parse failure (often caused by an over-large, truncated
+  // response) can transparently retry with a smaller CASE-B pool target.
+  let effectivePoolSize = targetPoolSize;
+
   const apiCall = async (modelOverride: string) => {
     return await callGeminiViaProxy(
       modelOverride,
@@ -204,7 +236,7 @@ export const extractQuestionBank = async (
         ▸ The 'correctAnswer' field MUST be one of the strings inside the 'options' array — copy/paste exactly.
 
         If CASE B:
-        ▸ Generate exactly ${targetPoolSize} distinct questions strictly grounded in the document's text. Cover the ENTIRE document — do not cluster around a few sections.
+        ▸ Generate exactly ${effectivePoolSize} distinct questions strictly grounded in the document's text. Cover the ENTIRE document — do not cluster around a few sections.
         ▸ Each option must reflect content actually present in the document; do not fabricate facts.
         ▸ The 'correctAnswer' must be the verbatim text of one of the 'options'.
 
@@ -253,7 +285,7 @@ export const extractQuestionBank = async (
     );
   };
 
-  try {
+  const runOnce = async (): Promise<{ questions: Question[]; caseType: CaseType }> => {
     const response = await callWithFallback(finalModelName, (m) => fetchWithRetry(() => apiCall(m)));
     const rawText = response.text;
     if (!rawText) throw new Error("EMPTY_RESPONSE: AI returned an empty result.");
@@ -305,6 +337,28 @@ export const extractQuestionBank = async (
       });
 
     return { questions: cleaned, caseType };
+  };
+
+  try {
+    try {
+      return await runOnce();
+    } catch (firstErr: unknown) {
+      // A truncated/over-large response shows up as PARSING_ERROR or EMPTY_RESPONSE.
+      // Auto-retry ONCE with a smaller CASE-B pool target before giving up — this
+      // is what the old error message asked the user to do by hand.
+      const m = firstErr instanceof Error ? firstErr.message : String(firstErr);
+      const recoverable = m.includes('PARSING_ERROR') || m.includes('EMPTY_RESPONSE');
+      const reduced = Math.max(15, Math.floor(effectivePoolSize / 2));
+      if (recoverable && reduced < effectivePoolSize) {
+        logger.warn(
+          `Extraction failed (${m.substring(0, 80)}). Retrying with reduced pool ${effectivePoolSize} → ${reduced}.`,
+          'geminiService.extractQuestionBank'
+        );
+        effectivePoolSize = reduced;
+        return await runOnce();
+      }
+      throw firstErr;
+    }
   } catch (error: unknown) {
     const errorObj = error instanceof Error ? error : new Error(String(error));
     logger.error("Failed to extract question bank", 'geminiService.extractQuestionBank', errorObj);

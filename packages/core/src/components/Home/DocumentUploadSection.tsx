@@ -28,13 +28,14 @@ const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
         const base64 = await fileToBase64(file);
         onDocLoaded({
-          fileData: { data: base64, mimeType: file.type }
+          fileData: { data: base64, mimeType: file.type },
+          name: file.name,
         });
       } else {
         // Support all text files including .md, .txt, .doc content
         const reader = new FileReader();
         reader.onload = (event) => {
-          onDocLoaded({ text: event.target?.result as string });
+          onDocLoaded({ text: event.target?.result as string, name: file.name });
         };
         reader.readAsText(file);
       }

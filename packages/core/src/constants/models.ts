@@ -69,3 +69,29 @@ export const isOverloadError = (error: unknown): boolean => {
   const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
   return OVERLOAD_PATTERNS.some(p => msg.includes(p));
 };
+
+const MODEL_UNAVAILABLE_PATTERNS = [
+  'not found',
+  'is not supported',
+  'not supported',
+  'invalid model',
+  'not allowed',
+  'unknown model',
+  'no such model',
+  'does not exist',
+  '404',
+  '400',
+  'permission_denied',
+  'permission denied',
+];
+
+/**
+ * True when the failure is because the chosen model id is invalid / unavailable
+ * (e.g. a 400/404 "model not found"), as opposed to a transient overload. Such
+ * errors are NOT fixed by retrying the same model, so the caller should fall
+ * back to a known-good default model instead of surfacing a hard error.
+ */
+export const isModelUnavailableError = (error: unknown): boolean => {
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return MODEL_UNAVAILABLE_PATTERNS.some(p => msg.includes(p));
+};

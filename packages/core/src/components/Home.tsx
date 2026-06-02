@@ -1,7 +1,9 @@
 
 import React, { useState } from 'react';
 import { ExamResult, DocumentSource } from '../types';
+import { SavedDocument } from '../utils/documentLibrary';
 import DocumentUploadSection from './Home/DocumentUploadSection';
+import SavedDocumentsList from './Home/SavedDocumentsList';
 import HistoryStats from './Home/HistoryStats';
 import ExamHistoryList from './Home/ExamHistoryList';
 
@@ -13,6 +15,9 @@ interface HomeProps {
   onImportHistory: (data: ExamResult[]) => void;
   onClearAllHistory: () => void;
   onViewResult: (result: ExamResult) => void;
+  savedDocuments: SavedDocument[];
+  onSelectDocument: (doc: SavedDocument) => void;
+  onDeleteDocument: (hash: string) => void;
 }
 
 const Home: React.FC<HomeProps> = ({
@@ -23,6 +28,9 @@ const Home: React.FC<HomeProps> = ({
   onImportHistory,
   onClearAllHistory,
   onViewResult,
+  savedDocuments,
+  onSelectDocument,
+  onDeleteDocument,
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'gdoc' | 'paste'>('upload');
   const [error, setError] = useState<string | null>(null);
@@ -45,9 +53,15 @@ const Home: React.FC<HomeProps> = ({
         error={error}
       />
 
+      <SavedDocumentsList
+        documents={savedDocuments}
+        onSelect={onSelectDocument}
+        onDelete={onDeleteDocument}
+      />
+
       {history.length > 0 && (
         <>
-          <HistoryStats history={history} onClearAll={onClearAllHistory} />
+          <HistoryStats history={history} onClearAll={onClearAllHistory} onImport={onImportHistory} />
           <ExamHistoryList
             history={history}
             onViewResult={onViewResult}

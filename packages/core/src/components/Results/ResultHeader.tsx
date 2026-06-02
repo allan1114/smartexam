@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { ExamResult } from '../../types';
+import { downloadReportHtml } from '../../utils/reportExport';
 
 interface ResultHeaderProps {
   result: ExamResult;
@@ -54,6 +55,17 @@ const ResultHeader: React.FC<ResultHeaderProps> = ({ result, onRestart, onRetake
             )}
             <button onClick={onRestart} className="bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white p-5 rounded-2xl font-black">NEW SESSION</button>
           </div>
+
+          <button
+            onClick={() => downloadReportHtml(result)}
+            title="下載完整報告（含題目、你的答案、對錯、正確答案、解釋）"
+            className="mt-4 w-full flex items-center justify-center gap-2 bg-emerald-600 text-white p-4 rounded-2xl font-black text-sm hover:bg-emerald-700 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            下載報告 · DOWNLOAD REPORT (HTML)
+          </button>
         </div>
       </div>
     </div>

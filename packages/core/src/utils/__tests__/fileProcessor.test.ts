@@ -133,6 +133,22 @@ describe('fileProcessor utilities', () => {
       const result = cleanJsonResponse('');
       expect(result).toBe('');
     });
+
+    it('should leave valid JSON untouched', () => {
+      const text = '{"caseType":"A","questions":[{"id":1}]}';
+      expect(cleanJsonResponse(text)).toBe(text);
+    });
+
+    it('should repair a truncated questions array into valid JSON', () => {
+      // Response cut off mid-way through the 3rd question.
+      const truncated =
+        '{"caseType":"B","questions":[{"id":1,"question":"Q1"},{"id":2,"question":"Q2"},{"id":3,"question":"Q3 incomp';
+      const repaired = cleanJsonResponse(truncated);
+      const parsed = JSON.parse(repaired); // must not throw
+      expect(parsed.caseType).toBe('B');
+      expect(parsed.questions.length).toBe(2); // last complete element kept
+      expect(parsed.questions[1].id).toBe(2);
+    });
   });
 
   describe('fileToBase64', () => {
