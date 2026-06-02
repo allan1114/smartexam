@@ -26,6 +26,7 @@
 - [🎯 Usage](#-usage)
 - [🏗️ Deployment](#️-deployment)
 - [📖 Documentation](#-documentation)
+- [🛠️ Troubleshooting & Debugging](#️-troubleshooting--debugging)
 - [🤝 Contributing](#-contributing)
 - [📄 License](#-license)
 
@@ -67,6 +68,20 @@
   - Exam duration (30-240 minutes)
   - Question order (Sequential/Random)
   - Content range focus (specific pages or chapters)
+
+### 🆕 Document Management & Reliability (Latest)
+- **📁 Saved Documents (skip re-upload)**: Every uploaded/pasted document is recorded in a "Saved Documents" list — re-open it from the Home page with one click, no re-upload needed
+  - Text / pasted content: **fully restored**, works offline
+  - PDF / images: only the name and MIME type are stored (**not** the base64 bytes, to avoid blowing the localStorage quota); if the cached question bank is still present you can retake immediately, otherwise you're prompted to re-upload
+  - Up to **20** documents are kept; the oldest is evicted beyond the cap
+- **📄 HTML Report Download**: After an exam, download a **self-contained HTML report** from the results page (inline CSS, zero external assets, opens offline, printable) containing every question, your answer, correct/incorrect status, the correct answer, explanation, document evidence quote, and overall score
+- **🎯 Guaranteed Question Count**: Ask for 40 questions and you get 40. The app generates and de-duplicates into the bank until the requested count is met; if the document genuinely can't yield enough, a clear message is shown instead of silently returning fewer
+- **🛡️ Sturdier Exam Creation**:
+  - Auto-fallback to a stable backup model when the chosen model is overloaded (429/503) **or** invalid/unavailable (400/404 "model not found")
+  - **90-second timeout** (AbortController) per request so a hung connection can't block creation
+  - Automatic repair of truncated JSON responses (re-balances the last complete array element)
+  - On a parse failure, **auto-retries once** with a smaller question pool
+- **💾 Exam History Backup**: One-click **export / import** of your history as JSON from the Home stats bar — handy for moving across devices or keeping a backup
 
 ---
 
@@ -460,10 +475,11 @@ Click the **⚙️ Settings button** (gear icon) in the top-right corner of the 
    - Upload a file (PDF, TXT, or image)
    - Import from Google Docs
    - Or paste text directly
+   - 💡 Previously used documents appear in the **Saved Documents** list on Home — re-open with one click, no re-upload
 
 2. **Configure Exam Settings**
    - Choose mode: Mock, Practice, or Study
-   - Set question count and duration
+   - Set question count and duration (the app guarantees the requested count)
    - Select answer format and order
 
 3. **Take the Exam**
@@ -475,6 +491,11 @@ Click the **⚙️ Settings button** (gear icon) in the top-right corner of the 
    - Detailed performance analysis
    - Topic-based breakdown
    - AI coaching insights
+   - 📄 Click **Download HTML Report** to save/print the full paper (with answers and explanations)
+
+5. **Back Up Your Progress (optional)**
+   - In the Home **Recent Progress** bar, click **Export** to download a JSON backup
+   - Click **Import** to restore from a backup (great before switching devices or clearing cache)
 
 ---
 
@@ -558,6 +579,49 @@ smartexam/
 - **Desktop**: Electron
 - **AI**: Google Gemini API
 - **Monorepo**: npm workspaces
+
+---
+
+## 🛠️ Troubleshooting & Debugging
+
+### Enable diagnostic logs
+
+Go to **⚙️ Settings → 📋 Log Level** and pick `DEBUG`, then open the browser DevTools Console to see step-by-step logs (model calls, fallback switches, question-bank access, etc.). Logs are tagged with their source, e.g. `geminiService.callWithFallback`, `questionBank.appendToQuestionBank`, to make tracing easy.
+
+### Common messages & fixes
+
+| Message / symptom | Cause | Fix |
+|---|---|---|
+| `NETWORK_TIMEOUT: request exceeded 90s…` | A single generate request timed out (AbortController cap is 90s) | Reduce the question count or retry later; check network/proxy |
+| `NOT_ENOUGH_QUESTIONS` | The document can't yield the requested number of questions | Lower the question count, or upload richer content |
+| Console shows `Model X overloaded/unavailable — falling back to …` | Primary model is overloaded (429/503) or invalid (400/404) | Normal auto-fallback; the exam continues. If it persists, pick a stable model (e.g. `gemini-2.5-flash`) in Settings |
+| Prompted to re-upload when re-opening a saved document | That document is a PDF/image (metadata only) and its question-bank cache was evicted | Re-upload the original file |
+
+### Local storage namespaces (DevTools → Application → Local Storage)
+
+| Key prefix | Purpose | Cap |
+|---|---|---|
+| `smart_exam_doclib_index` / `smart_exam_doc_*` | Saved-documents list and content | 20 docs |
+| `smart_exam_bank_index` / `smart_exam_bank_*` | Question-bank cache (for retake / top-up) | 10 banks |
+| `smart_exam_api_key` / `smart_exam_use_proxy` | API key and proxy toggle | — |
+
+> Clearing these keys resets the corresponding feature. All of these are best-effort: a write failure (e.g. quota exceeded) never interrupts the upload or exam flow.
+
+### Run tests for the new features
+
+```bash
+# Saved-documents library
+npm test -- documentLibrary.test.ts
+
+# HTML report export
+npm test -- reportExport.test.ts
+
+# Model error classification (overload vs unavailable) and fallback
+npm test -- models.test.ts
+
+# Truncated-JSON repair
+npm test -- fileProcessor.test.ts
+```
 
 ---
 
