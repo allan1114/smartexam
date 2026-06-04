@@ -715,7 +715,6 @@ const API_KEY = "sk_...";
 
 如果您需要幫助：
 
-- 📧 電子郵件：[likwokwa@gmail.com](mailto:likwokwa@gmail.com)
 - 🐛 問題：[GitHub Issues](../../issues)
 
 ---
