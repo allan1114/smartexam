@@ -7,13 +7,255 @@ import { logger } from "../utils/logger";
 import { DEFAULT_MODEL, getFallbackModel, isOverloadError, isModelUnavailableError } from "../constants/models";
 
 const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_FILES_UPLOAD_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
 
 // Hard ceiling on a single generateContent request so a hung connection can't
 // block exam creation indefinitely.
 const REQUEST_TIMEOUT_MS = 90000;
 
+// Gemini caps a single generateContent request (inline data included) at ~20MB.
+// base64 inflates the raw bytes by ~33%, so once the ENCODED payload passes
+// ~15MB we upload the file via the Files API and reference it by URI instead of
+// inlining it. This is what lets large PDFs — users routinely upload up to
+// ~50MB — succeed instead of failing the request outright.
+export const INLINE_MAX_BASE64_LEN = 15 * 1024 * 1024;
+
+// Vercel serverless functions reject request bodies larger than ~4.5MB, so proxy
+// mode cannot carry a big inlined file at all — surface a clear error instead.
+export const PROXY_MAX_BASE64_LEN = 4 * 1024 * 1024;
+
 const extractText = (data: any): string =>
   data?.candidates?.[0]?.content?.parts?.[0]?.text ?? data?.text ?? '';
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+/** Which AI provider the user has selected. Defaults to Google (existing behavior). */
+const getProvider = (): 'google' | 'minimax' =>
+  localStorage.getItem('smart_exam_provider') === 'minimax' ? 'minimax' : 'google';
+
+/** Decode a base64 string into a Blob without inflating it through a data-URI. */
+const base64ToBlob = (base64: string, mimeType: string): Blob => {
+  const byteChars = atob(base64);
+  const bytes = new Uint8Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+};
+
+/**
+ * Upload a large file to the Gemini Files API (resumable protocol) and return a
+ * `fileData` part that references it by URI. Used in direct mode when a file is
+ * too big to inline (see INLINE_MAX_BASE64_LEN). The upload itself is NOT bound
+ * by REQUEST_TIMEOUT_MS — large uploads legitimately take a while.
+ */
+const uploadFileToGemini = async (
+  apiKey: string,
+  base64: string,
+  mimeType: string
+): Promise<{ fileUri: string; mimeType: string }> => {
+  const blob = base64ToBlob(base64, mimeType);
+  const numBytes = blob.size;
+
+  // 1) Start a resumable upload session.
+  const startResp = await fetch(`${GEMINI_FILES_UPLOAD_URL}?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'X-Goog-Upload-Protocol': 'resumable',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': String(numBytes),
+      'X-Goog-Upload-Header-Content-Type': mimeType,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ file: { display_name: 'smartexam-upload' } }),
+  });
+  if (!startResp.ok) {
+    const e = await startResp.json().catch(() => ({}));
+    throw new Error(e.error?.message || `FILE_UPLOAD_FAILED: 無法開始上傳檔案 (${startResp.status}).`);
+  }
+  const uploadUrl =
+    startResp.headers.get('X-Goog-Upload-URL') || startResp.headers.get('x-goog-upload-url');
+  if (!uploadUrl) throw new Error('FILE_UPLOAD_FAILED: Gemini Files API 未回傳上傳網址。');
+
+  // 2) Upload the bytes and finalize in one shot.
+  const uploadResp = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Length': String(numBytes),
+      'X-Goog-Upload-Offset': '0',
+      'X-Goog-Upload-Command': 'upload, finalize',
+    },
+    body: blob,
+  });
+  if (!uploadResp.ok) {
+    const e = await uploadResp.json().catch(() => ({}));
+    throw new Error(e.error?.message || `FILE_UPLOAD_FAILED: 上傳檔案失敗 (${uploadResp.status}).`);
+  }
+  const info = await uploadResp.json();
+  let file = info.file;
+  if (!file?.uri) throw new Error('FILE_UPLOAD_FAILED: Files API 未回傳檔案 URI。');
+
+  // 3) Poll until the file finishes processing (PDFs need a moment; images are
+  //    usually instant). Cap the wait so a stuck file can't hang exam creation.
+  let tries = 0;
+  while (file.state === 'PROCESSING' && tries < 30) {
+    await sleep(1000);
+    tries++;
+    const getResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/${file.name}?key=${apiKey}`);
+    if (getResp.ok) file = await getResp.json();
+  }
+  if (file.state === 'FAILED') {
+    throw new Error('FILE_UPLOAD_FAILED: Gemini 無法處理上傳的檔案。請改用較細的檔案或貼上文字。');
+  }
+
+  return { fileUri: file.uri, mimeType };
+};
+
+/**
+ * Resolve the file parts for a DocumentSource into the part array sent to the
+ * model. In direct Google mode, oversized inline files are uploaded ONCE via the
+ * Files API and replaced with a `fileData` URI reference. Small files stay
+ * inline. Proxy mode keeps inline but guards against bodies too big for Vercel.
+ * Called once per extraction so retries/fallbacks never re-upload.
+ */
+const resolveFileParts = async (
+  source: DocumentSource
+): Promise<Array<Record<string, unknown>>> => {
+  if (!source.fileData) return [];
+  const { data, mimeType } = source.fileData;
+  const provider = getProvider();
+  const useProxy = localStorage.getItem('smart_exam_use_proxy') === 'true';
+  const apiKey = localStorage.getItem('smart_exam_api_key') || '';
+
+  // MiniMax has no inline-file support here; callMinimax surfaces a clear error.
+  if (provider === 'minimax') return [{ inlineData: source.fileData }];
+
+  if (useProxy) {
+    if (data.length > PROXY_MAX_BASE64_LEN) {
+      throw new Error(
+        'FILE_TOO_LARGE_FOR_PROXY: 此檔案太大，無法經 Backend Proxy 上傳 (上限約 3MB)。請喺 ⚙️ Settings 關閉 Proxy 改用直接 API key 模式，即可支援大型 PDF。'
+      );
+    }
+    return [{ inlineData: source.fileData }];
+  }
+
+  // Direct mode: inline when small, otherwise upload via the Files API.
+  if (apiKey && data.length > INLINE_MAX_BASE64_LEN) {
+    logger.info(
+      `File too large to inline (${Math.round(data.length / 1024 / 1024)}MB base64) — uploading via Files API.`,
+      'geminiService.resolveFileParts'
+    );
+    const uploaded = await uploadFileToGemini(apiKey, data, mimeType);
+    return [{ fileData: { fileUri: uploaded.fileUri, mimeType: uploaded.mimeType } }];
+  }
+  return [{ inlineData: source.fileData }];
+};
+
+interface MinimaxMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * Translate the Gemini-style `contents` (used throughout this service) into the
+ * OpenAI/MiniMax `messages` array. Returns `hasFile` so the caller can reject
+ * file-based input (MiniMax's chat endpoint doesn't accept inline PDFs/images
+ * here). Pure + exported for unit testing.
+ */
+export const buildMinimaxMessages = (
+  contents: any,
+  systemInstruction?: string
+): { messages: MinimaxMessage[]; hasFile: boolean } => {
+  const messages: MinimaxMessage[] = [];
+  if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
+
+  const collectText = (parts: any): string =>
+    (Array.isArray(parts) ? parts : [])
+      .map((p: any) => (typeof p?.text === 'string' ? p.text : ''))
+      .filter(Boolean)
+      .join('\n');
+  const hasFilePart = (parts: any): boolean =>
+    (Array.isArray(parts) ? parts : []).some((p: any) => p?.inlineData || p?.fileData);
+  const toRole = (r: unknown): 'user' | 'assistant' =>
+    r === 'model' || r === 'assistant' ? 'assistant' : 'user';
+
+  // Shape 1: an array of role-tagged messages (chat history).
+  if (Array.isArray(contents)) {
+    for (const m of contents) messages.push({ role: toRole(m?.role), content: collectText(m?.parts) });
+    return { messages, hasFile: false };
+  }
+
+  const parts = contents?.parts;
+  // Shape 2: { parts: [{ role, parts }, ...] } — also a message list (chatbot).
+  if (Array.isArray(parts) && parts.length > 0 && parts.every((p: any) => p && p.role && p.parts)) {
+    for (const m of parts) messages.push({ role: toRole(m.role), content: collectText(m.parts) });
+    return { messages, hasFile: false };
+  }
+
+  // Shape 3: a single user turn ({ parts: [{text}, {inlineData}] }).
+  messages.push({ role: 'user', content: collectText(parts) });
+  return { messages, hasFile: hasFilePart(parts) };
+};
+
+/**
+ * Call the MiniMax (international) chat-completions endpoint. OpenAI-compatible,
+ * so we map our Gemini-style request onto `messages`. Endpoint URL, model and
+ * API key are read from their own localStorage keys, completely separate from
+ * the Google/Gemini settings.
+ */
+const callMinimax = async (contents: any, config?: any): Promise<{ text: string }> => {
+  const url =
+    localStorage.getItem('smart_exam_minimax_url') || 'https://api.minimax.io/v1/chat/completions';
+  const apiKey = localStorage.getItem('smart_exam_minimax_api_key') || '';
+  const model = localStorage.getItem('smart_exam_minimax_model') || 'MiniMax-Text-01';
+
+  if (!apiKey) {
+    throw new Error(
+      'NO_API_KEY: 未設定 MiniMax API key。請開啟 ⚙️ Settings → 將 AI Provider 揀做 MiniMax → 輸入 API key。'
+    );
+  }
+
+  const { systemInstruction, responseMimeType, temperature, maxOutputTokens } = config || {};
+  const { messages, hasFile } = buildMinimaxMessages(contents, systemInstruction);
+
+  if (hasFile) {
+    throw new Error(
+      'MINIMAX_NO_FILE: MiniMax 模型暫不支援直接讀取 PDF／圖片檔案。請改用 Google 模型，或用「Manual Paste」貼上文字內容。'
+    );
+  }
+
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    ...(temperature !== undefined && { temperature }),
+    ...(maxOutputTokens !== undefined && { max_tokens: maxOutputTokens }),
+    ...(responseMimeType === 'application/json' && { response_format: { type: 'json_object' } }),
+  };
+
+  const resp = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({} as any));
+    throw new Error(
+      err.error?.message || err.base_resp?.status_msg || `MiniMax API Error: ${resp.status} ${resp.statusText}`
+    );
+  }
+
+  const data = await resp.json();
+  // MiniMax can return a non-zero base_resp status even with HTTP 200.
+  if (data?.base_resp && data.base_resp.status_code !== 0 && data.base_resp.status_code !== undefined) {
+    if (!data?.choices?.[0]?.message?.content) {
+      throw new Error(`MiniMax API Error: ${data.base_resp.status_msg || data.base_resp.status_code}`);
+    }
+  }
+  const text = data?.choices?.[0]?.message?.content ?? '';
+  return { text: typeof text === 'string' ? text : String(text ?? '') };
+};
 
 /**
  * fetch() wrapper that aborts after REQUEST_TIMEOUT_MS. A timeout is surfaced as
@@ -43,6 +285,12 @@ const callGeminiViaProxy = async (
   contents: any,
   config?: any
 ): Promise<{ text: string }> => {
+  // MiniMax is a separate provider with its own endpoint/key — route early so the
+  // Google/Gemini path below (and its settings) stays completely untouched.
+  if (getProvider() === 'minimax') {
+    return callMinimax(contents, config);
+  }
+
   // Default is direct mode (false). Only proxy mode if explicitly set to 'true'.
   const useProxy = localStorage.getItem('smart_exam_use_proxy') === 'true';
   const proxyUrl = localStorage.getItem('smart_exam_proxy_url') || '/api/proxy-gemini';
@@ -219,13 +467,18 @@ export const extractQuestionBank = async (
     }
   })();
 
+  // Resolve file input ONCE up front: oversized files are uploaded via the
+  // Gemini Files API (direct mode) so big PDFs don't blow the inline request cap.
+  // Reused across the retry/fallback attempts below so we never re-upload.
+  const fileParts = await resolveFileParts(source);
+
   const apiCall = async (modelOverride: string) => {
     return await callGeminiViaProxy(
       modelOverride,
       {
         parts: [
           { text: source.text ? `DOCUMENT CONTENT:\n${textContext}` : "Analyze the attached file and extract questions from its content." },
-          ...(source.fileData ? [{ inlineData: source.fileData }] : [])
+          ...fileParts
         ]
       },
       {
