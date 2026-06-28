@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Question, ExamConfig, UserAnswer } from '../types';
+import { isAnswerCorrect, isResponseComplete, finalizeUserAnswer } from '../utils/answerModel';
 import TimerDisplay from './ExamPortal/TimerDisplay';
 import QuestionNavigator from './ExamPortal/QuestionNavigator';
 import QuestionDisplay from './ExamPortal/QuestionDisplay';
@@ -11,9 +12,16 @@ interface ExamPortalProps {
   onFinish: (answers: UserAnswer[]) => void;
 }
 
+const emptyAnswer = (questionId: number): UserAnswer => ({
+  questionId,
+  selectedOption: '',
+  isCorrect: false,
+  timeSpent: 0,
+});
+
 const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
+  const [userAnswers, setUserAnswers] = useState<Record<number, UserAnswer>>({});
   const [flaggedIds, setFlaggedIds] = useState<Set<number>>(new Set());
   const [timeLeft, setTimeLeft] = useState(config.mode === 'MOCK' ? config.durationMinutes * 60 : 0);
   const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false);
@@ -21,10 +29,10 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
 
   const currentQuestion = questions[currentIndex];
   const isMock = config.mode === 'MOCK';
-  const selectedOption = userAnswers[currentQuestion?.id];
-  const hasAnsweredCurrent = !!selectedOption;
+  const currentAnswer = currentQuestion ? userAnswers[currentQuestion.id] : undefined;
+  const hasAnsweredCurrent = currentQuestion ? isResponseComplete(currentQuestion, currentAnswer) : false;
   const showInstantFeedback = !isMock && hasAnsweredCurrent;
-  const answeredCount = Object.keys(userAnswers).length;
+  const answeredCount = questions.filter(q => isResponseComplete(q, userAnswers[q.id])).length;
   const progress = (answeredCount / questions.length) * 100;
   const isCritical = timeLeft > 0 && timeLeft < 300;
   const isFlagged = currentQuestion ? flaggedIds.has(currentQuestion.id) : false;
@@ -41,14 +49,8 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
 
   const handleFinalSubmit = useCallback(() => {
     const finalAnswers: UserAnswer[] = questions.map(q => {
-      const selected = userAnswers[q.id];
-      const isCorrect = selected?.trim().toLowerCase() === q.correctAnswer?.trim().toLowerCase();
-      return {
-        questionId: q.id,
-        selectedOption: selected || '',
-        isCorrect,
-        timeSpent: 0
-      };
+      const answer = userAnswers[q.id] ?? emptyAnswer(q.id);
+      return finalizeUserAnswer(q, answer);
     });
     onFinish(finalAnswers);
   }, [questions, userAnswers, onFinish]);
@@ -70,10 +72,15 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
     return undefined;
   }, [timeLeft, isMock, handleFinalSubmit, isAutoSubmitting]);
 
-  const handleOptionSelect = (option: string) => {
+  const handleAnswerChange = (update: Partial<UserAnswer>) => {
     if (isAutoSubmitting || !currentQuestion) return;
+    // In practice/study mode, once a question is fully answered its feedback is
+    // shown and the answer locks (mirrors the original single-answer behavior).
     if (!isMock && hasAnsweredCurrent) return;
-    setUserAnswers(prev => ({ ...prev, [currentQuestion.id]: option }));
+    setUserAnswers(prev => {
+      const existing = prev[currentQuestion.id] ?? emptyAnswer(currentQuestion.id);
+      return { ...prev, [currentQuestion.id]: { ...existing, ...update } };
+    });
   };
 
   if (!currentQuestion) return <div className="p-20 text-center">Loading Questions...</div>;
@@ -128,8 +135,8 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
         <QuestionDisplay
           question={currentQuestion}
           config={config}
-          selectedOption={selectedOption}
-          onSelectOption={handleOptionSelect}
+          answer={currentAnswer}
+          onChangeAnswer={handleAnswerChange}
           isAnswered={hasAnsweredCurrent}
           showInstantFeedback={showInstantFeedback}
         />
@@ -137,8 +144,8 @@ const ExamPortal: React.FC<ExamPortalProps> = ({ questions, config, onFinish }) 
         {showInstantFeedback && (
           <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-lg border border-slate-200 dark:border-slate-700 p-8 mb-8 animate-slide-up">
             <div className="flex items-center space-x-3 mb-4">
-              <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${selectedOption === currentQuestion.correctAnswer ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
-                {selectedOption === currentQuestion.correctAnswer ? 'Correct' : 'Incorrect'}
+              <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${isAnswerCorrect(currentQuestion, currentAnswer) ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+                {isAnswerCorrect(currentQuestion, currentAnswer) ? 'Correct' : 'Incorrect'}
               </div>
               <span className="text-xs font-black uppercase tracking-widest text-slate-400">Explanation</span>
             </div>

@@ -1,7 +1,7 @@
 
 import { Type, GenerateContentResponse } from "@google/genai";
 import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis, CaseType } from "../types";
-import { cleanJsonResponse } from "../utils/fileProcessor";
+import { cleanJsonResponse, normalizeGeneratedQuestion } from "../utils/fileProcessor";
 import { ApiError, isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import { DEFAULT_MODEL, getFallbackModel, isOverloadError, isModelUnavailableError } from "../constants/models";
@@ -203,6 +203,22 @@ export const extractQuestionBank = async (
   // response) can transparently retry with a smaller CASE-B pool target.
   let effectivePoolSize = targetPoolSize;
 
+  // Expand the answerFormat token (previously injected as a bare label) into
+  // concrete guidance for the model.
+  const answerFormatInstruction = (() => {
+    switch (answerFormat) {
+      case 'MCQ_4':
+        return "Prefer 4-option multiple-choice (A–D) for single/multiple-answer questions.";
+      case 'MCQ_5':
+        return "Prefer 5-option multiple-choice (A–E) for single/multiple-answer questions.";
+      case 'TF':
+        return "Prefer True/False questions: type 'single' with exactly two options ('True','False').";
+      case 'AUTO':
+      default:
+        return "Choose the most faithful option count and question type per question based on the source.";
+    }
+  })();
+
   const apiCall = async (modelOverride: string) => {
     return await callGeminiViaProxy(
       modelOverride,
@@ -241,12 +257,23 @@ export const extractQuestionBank = async (
         ▸ The 'correctAnswer' must be the verbatim text of one of the 'options'.
 
         ============================================================
+        STEP 3 — QUESTION TYPE (set 'type' on every question)
+        ============================================================
+        Choose the 'type' that matches the source question (CASE A) or the content (CASE B):
+        ▸ 'single'   — exactly ONE correct option. Fill 'options' and 'correctAnswer'. (Default — use this when unsure.)
+        ▸ 'multiple' — the question asks to select MORE THAN ONE answer (look for "(Choose two)", "(Choose three)", "Select all that apply", "Select N"). Fill 'options', and put EVERY correct option (verbatim) in the 'correctAnswers' array. Also set 'correctAnswer' to the first correct option.
+        ▸ 'matching' — DRAG DROP / matching questions where left-side items each pair with a right-side item. Fill 'pairs' as [{prompt, answer}] (prompt = left item, answer = the correct right item). Put the full pool of right-side choices (every distinct 'answer', plus any distractors) into 'options'. Set 'correctAnswer' to the first pair rendered as "prompt → answer".
+        ▸ 'dropdown' — HOTSPOT / fill-in-the-blank questions answered by picking from a dropdown. Fill 'blanks' as [{label, options, correctAnswer}] (one entry per dropdown). Put the union of all blank options into the top-level 'options'. Set 'correctAnswer' to the first blank's correctAnswer.
+        For 'single'/'multiple', the correct option text MUST appear verbatim in 'options'. For 'matching', every pair.answer MUST appear in 'options'. For 'dropdown', every blank.correctAnswer MUST appear in that blank's options.
+
+        ============================================================
         QUALITY RULES (BOTH CASES)
         ============================================================
         1. NO DUPLICATION: Each question must be distinct from every other question in the bank.
         2. SOURCE QUOTE: For every question, provide a 'sourceQuote' — a verbatim excerpt (10-40 words) from the document that directly justifies the correct answer. Copy it character-for-character.
-        3. ANSWER FORMAT: Follow ${answerFormat}.
+        3. ANSWER FORMAT: ${answerFormatInstruction}
         4. EXPLANATION: Keep the explanation concise (1-3 sentences) and grounded in the sourceQuote.
+        5. VISUAL/TABLE FIDELITY: If a question's context includes a TABLE, chart, or other structured visual in the source, reproduce it faithfully INSIDE the 'question' text as a plain-text GitHub-Markdown table (pipe-separated rows with a header separator line). Preserve every row, column, header, number and unit. Never drop or summarize a table that the question depends on.
 
         ============================================================
         OUTPUT
@@ -254,7 +281,7 @@ export const extractQuestionBank = async (
         Return a JSON object with keys:
           - 'caseType': either 'A' or 'B'
           - 'questions': the list of questions
-        Each question must have: id, question, options, correctAnswer, explanation, sourceQuote, topic.
+        Each question must have: id, question, type, options, correctAnswer, explanation, sourceQuote, topic — plus 'correctAnswers' for 'multiple', 'pairs' for 'matching', and 'blanks' for 'dropdown'.
         The 'correctAnswer' string MUST match one of the 'options' strings exactly (character-for-character).`,
         responseMimeType: "application/json",
         temperature,
@@ -269,13 +296,38 @@ export const extractQuestionBank = async (
                 properties: {
                   id: { type: Type.INTEGER },
                   question: { type: Type.STRING },
+                  type: { type: Type.STRING, enum: ["single", "multiple", "matching", "dropdown"] },
                   options: { type: Type.ARRAY, items: { type: Type.STRING } },
                   correctAnswer: { type: Type.STRING },
+                  correctAnswers: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  pairs: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        prompt: { type: Type.STRING },
+                        answer: { type: Type.STRING },
+                      },
+                      required: ["prompt", "answer"],
+                    },
+                  },
+                  blanks: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        label: { type: Type.STRING },
+                        options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        correctAnswer: { type: Type.STRING },
+                      },
+                      required: ["options", "correctAnswer"],
+                    },
+                  },
                   explanation: { type: Type.STRING },
                   sourceQuote: { type: Type.STRING },
                   topic: { type: Type.STRING },
                 },
-                required: ["id", "question", "options", "correctAnswer", "explanation", "sourceQuote", "topic"],
+                required: ["id", "question", "type", "options", "correctAnswer", "explanation", "sourceQuote", "topic"],
               }
             }
           },
@@ -311,30 +363,11 @@ export const extractQuestionBank = async (
     if (questions.length === 0) throw new Error("NO_QUESTIONS: No questions were extracted.");
 
     // Preserve original options/order from AI (verbatim). Display-time shuffling is handled by optionShuffler.
+    // normalizeGeneratedQuestion validates + canonicalizes each question per type
+    // and drops malformed entries (rather than failing the whole batch).
     const cleaned = questions
-      .filter((q: unknown): q is Question => {
-        return (
-          typeof q === 'object' &&
-          q !== null &&
-          'id' in q &&
-          'question' in q &&
-          'options' in q &&
-          'correctAnswer' in q
-        );
-      })
-      .map((q: Question, idx: number) => {
-        const cleanOption = (t: string) => String(t).replace(/^[A-E][).]\s*/i, '').trim();
-        const normalizedCorrect = cleanOption(q.correctAnswer);
-        const matchingOption = q.options.find(
-          (opt: string) => cleanOption(opt).toLowerCase() === normalizedCorrect.toLowerCase()
-        );
-
-        return {
-          ...q,
-          id: idx + 1,
-          correctAnswer: matchingOption || q.correctAnswer
-        };
-      });
+      .map((q: unknown, idx: number) => normalizeGeneratedQuestion(q, idx))
+      .filter((q): q is Question => q !== null);
 
     return { questions: cleaned, caseType };
   };

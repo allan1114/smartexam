@@ -135,6 +135,14 @@ export const validateOriginalQuestions = (
       if (!currOptSet.has(opt)) return false;
     }
 
+    // Multi-type structures are preserved verbatim through display (only A/B/C/D
+    // order is shuffled). Compare them when present; tolerate their absence on
+    // legacy single-answer data.
+    if ((origQ.type ?? 'single') !== (currQ.type ?? 'single')) return false;
+    if (JSON.stringify(origQ.correctAnswers ?? null) !== JSON.stringify(currQ.correctAnswers ?? null)) return false;
+    if (JSON.stringify(origQ.pairs ?? null) !== JSON.stringify(currQ.pairs ?? null)) return false;
+    if (JSON.stringify(origQ.blanks ?? null) !== JSON.stringify(currQ.blanks ?? null)) return false;
+
     return true;
   });
 };

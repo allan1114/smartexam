@@ -1,4 +1,5 @@
 import { OriginalQuestion, OptionMapping, Question } from '../types';
+import { getQuestionType } from './answerModel';
 import { logger } from './logger';
 
 /**
@@ -120,7 +121,11 @@ export const getDisplayQuestions = (
   const questions: Question[] = [];
 
   originalQuestions.forEach(original => {
-    const mapping = createOptionMapping(original.id, original.options, shuffleOptions);
+    // Matching/dropdown answers are validated by text (see answerModel), and their
+    // option pools may repeat strings — which would corrupt the index map. Keep
+    // their option order as-is; only A/B/C/D-style questions get position shuffle.
+    const isFlat = getQuestionType(original) === 'single' || getQuestionType(original) === 'multiple';
+    const mapping = createOptionMapping(original.id, original.options, shuffleOptions && isFlat);
     mappings.push(mapping);
     questions.push(getDisplayQuestion(original, mapping));
   });

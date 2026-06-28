@@ -2,6 +2,128 @@
  * File processing utilities for document conversion
  */
 
+import { Question, QuestionType, MatchPair, DropdownBlank } from '../types';
+
+const QUESTION_TYPES: QuestionType[] = ['single', 'multiple', 'matching', 'dropdown'];
+
+/** Strip a leading option label like "A) " / "B. " so answers can be matched to options. */
+const cleanOptionText = (t: unknown): string => String(t ?? '').replace(/^[A-E][).]\s*/i, '').trim();
+
+/** Find the option whose text matches `value` (ignoring label prefix and case). */
+const matchToOption = (value: unknown, options: string[]): string | undefined => {
+  const normalized = cleanOptionText(value).toLowerCase();
+  return options.find(opt => cleanOptionText(opt).toLowerCase() === normalized);
+};
+
+const asStringArray = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+
+/**
+ * Normalize one AI-generated question object into a strict `Question`, or return
+ * `null` if it is too malformed to use (the caller drops it rather than failing
+ * the whole batch). Pure + network-free so it is unit-testable with fixtures.
+ *
+ * `correctAnswer` is always backfilled (even for matching/dropdown) so legacy
+ * code paths and the examStorage round-trip guard never see `undefined`.
+ */
+export const normalizeGeneratedQuestion = (raw: unknown, idx: number): Question | null => {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.question !== 'string' || r.question.trim() === '') return null;
+
+  const type: QuestionType = QUESTION_TYPES.includes(r.type as QuestionType)
+    ? (r.type as QuestionType)
+    : 'single';
+
+  const base = {
+    id: idx + 1,
+    question: r.question,
+    explanation: typeof r.explanation === 'string' ? r.explanation : '',
+    sourceQuote: typeof r.sourceQuote === 'string' ? r.sourceQuote : '',
+    topic: typeof r.topic === 'string' ? r.topic : undefined,
+  };
+
+  if (type === 'matching') {
+    const rawPairs = Array.isArray(r.pairs) ? r.pairs : [];
+    const pairs: MatchPair[] = rawPairs
+      .filter((p): p is Record<string, unknown> => typeof p === 'object' && p !== null)
+      .map(p => ({ prompt: String(p.prompt ?? '').trim(), answer: String(p.answer ?? '').trim() }))
+      .filter(p => p.prompt !== '' && p.answer !== '');
+    if (pairs.length === 0) return null;
+    // Options = the answer pool; ensure every correct answer is present.
+    const options = asStringArray(r.options);
+    pairs.forEach(p => {
+      if (!options.some(o => cleanOptionText(o).toLowerCase() === p.answer.toLowerCase())) {
+        options.push(p.answer);
+      }
+    });
+    return {
+      ...base,
+      type,
+      options,
+      pairs,
+      correctAnswer: `${pairs[0].prompt} → ${pairs[0].answer}`,
+    };
+  }
+
+  if (type === 'dropdown') {
+    const rawBlanks = Array.isArray(r.blanks) ? r.blanks : [];
+    const blanks: DropdownBlank[] = rawBlanks
+      .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null)
+      .map(b => {
+        const opts = asStringArray(b.options);
+        const correct = String(b.correctAnswer ?? '').trim();
+        if (correct !== '' && !opts.some(o => cleanOptionText(o).toLowerCase() === correct.toLowerCase())) {
+          opts.push(correct);
+        }
+        return {
+          label: typeof b.label === 'string' ? b.label : undefined,
+          options: opts,
+          correctAnswer: correct,
+        };
+      })
+      .filter(b => b.options.length > 0 && b.correctAnswer !== '');
+    if (blanks.length === 0) return null;
+    const options = Array.from(new Set(blanks.flatMap(b => b.options)));
+    return {
+      ...base,
+      type,
+      options,
+      blanks,
+      correctAnswer: blanks[0].correctAnswer,
+    };
+  }
+
+  // single / multiple — both carry a flat options list.
+  const options = asStringArray(r.options);
+  if (options.length === 0) return null;
+
+  if (type === 'multiple') {
+    const rawCorrect = asStringArray(r.correctAnswers);
+    const correctAnswers = rawCorrect
+      .map(c => matchToOption(c, options) ?? cleanOptionText(c))
+      .filter(c => c !== '');
+    if (correctAnswers.length === 0) {
+      // Fall back to the single correctAnswer if the array was unusable.
+      const fallback = matchToOption(r.correctAnswer, options);
+      if (!fallback) return null;
+      return { ...base, type: 'single', options, correctAnswer: fallback };
+    }
+    return {
+      ...base,
+      type,
+      options,
+      correctAnswers,
+      correctAnswer: correctAnswers[0],
+    };
+  }
+
+  // single
+  const correctAnswer = matchToOption(r.correctAnswer, options) ?? String(r.correctAnswer ?? '').trim();
+  if (correctAnswer === '') return null;
+  return { ...base, type: 'single', options, correctAnswer };
+};
+
 /**
  * Converts a File to base64 string
  * @param file - File object to convert
