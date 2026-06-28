@@ -9,6 +9,13 @@ interface DocumentUploadSectionProps {
   error: string | null;
 }
 
+// Largest file we accept. PDFs/images above the Gemini inline cap are uploaded
+// via the Files API downstream, so 50MB is fully supported in direct API mode.
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
+const formatSize = (bytes: number): string =>
+  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`;
+
 const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
   onDocLoaded,
   activeTab,
@@ -19,13 +26,25 @@ const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
   const [googleDocUrl, setGoogleDocUrl] = useState('');
   const [pastedContent, setPastedContent] = useState('');
   const [localError, setLocalError] = useState<string | null>(error);
+  const [fileInfo, setFileInfo] = useState<string | null>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setLocalError(null);
+    setFileInfo(null);
+
+    if (file.size > MAX_FILE_SIZE) {
+      setLocalError(
+        `檔案太大 (${formatSize(file.size)})，上限為 ${formatSize(MAX_FILE_SIZE)}。請壓縮 PDF 或分拆檔案後再上傳。`
+      );
+      e.target.value = '';
+      return;
+    }
 
     try {
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        setFileInfo(`處理中：${file.name} (${formatSize(file.size)})…`);
         const base64 = await fileToBase64(file);
         onDocLoaded({
           fileData: { data: base64, mimeType: file.type },
@@ -40,6 +59,7 @@ const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
         reader.readAsText(file);
       }
     } catch (err) {
+      setFileInfo(null);
       setLocalError("Failed to process file. Please try a different document.");
     }
   };
@@ -101,7 +121,13 @@ const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
               onChange={handleFileUpload}
               className="block w-full text-sm text-slate-500 file:mr-4 file:py-4 file:px-8 file:rounded-2xl file:border-0 file:text-sm file:font-black file:bg-slate-900 file:text-white border-2 border-dashed border-slate-200 dark:border-slate-700 p-8 rounded-3xl"
             />
-            <p className="mt-4 text-xs text-slate-400 font-medium">Supports PDF, Text, Markdown, and Images of exam papers.</p>
+            <p className="mt-4 text-xs text-slate-400 font-medium">Supports PDF, Text, Markdown, and Images of exam papers — up to {formatSize(MAX_FILE_SIZE)}.</p>
+            {fileInfo && (
+              <p className="mt-2 text-xs text-indigo-500 font-medium">{fileInfo}</p>
+            )}
+            {localError && (
+              <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 font-semibold">{localError}</p>
+            )}
           </div>
         )}
 
