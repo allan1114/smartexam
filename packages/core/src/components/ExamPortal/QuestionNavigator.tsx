@@ -1,11 +1,12 @@
 import React from 'react';
-import { Question, ExamConfig } from '../../types';
+import { Question, ExamConfig, UserAnswer } from '../../types';
+import { isAnswerCorrect, isResponseComplete } from '../../utils/answerModel';
 
 interface QuestionNavigatorProps {
   questions: Question[];
   currentIndex: number;
   onSelectQuestion: (index: number) => void;
-  userAnswers: Record<number, string>;
+  userAnswers: Record<number, UserAnswer>;
   config: ExamConfig;
   flaggedIds?: Set<number>;
 }
@@ -24,9 +25,9 @@ const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
     <div className="flex flex-wrap gap-1.5 p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
       {questions.map((q, idx) => {
         const ans = userAnswers[q.id];
-        const isCorrect = !isMock && ans && ans.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
-        const isWrong = !isMock && ans && ans.trim().toLowerCase() !== q.correctAnswer.trim().toLowerCase();
-        const isAnswered = !!ans;
+        const isAnswered = isResponseComplete(q, ans);
+        const isCorrect = !isMock && isAnswered && isAnswerCorrect(q, ans);
+        const isWrong = !isMock && isAnswered && !isAnswerCorrect(q, ans);
         const isCurrent = idx === currentIndex;
         const isFlagged = !!flaggedIds?.has(q.id);
 

@@ -1,21 +1,92 @@
 import React, { useState } from 'react';
 import DOMPurify from 'dompurify';
-import { Question, ExamResult } from '../../types';
+import { Question, ExamResult, UserAnswer } from '../../types';
 import { refineMasteryInsight } from '../../services/geminiService';
+import { getQuestionType, getCorrectAnswers } from '../../utils/answerModel';
 
 interface QuestionReviewSectionProps {
   questions: Question[];
   result: ExamResult;
 }
 
+const sameStr = (a: string | undefined, b: string | undefined) =>
+  (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase() && (a ?? '').trim() !== '';
+
 const QuestionReviewSection: React.FC<QuestionReviewSectionProps> = ({ questions, result }) => {
   const [expandedExplanations, setExpandedExplanations] = useState<Set<number>>(new Set());
   const [refinedInsights, setRefinedInsights] = useState<Record<number, string>>({});
   const [loadingRefine, setLoadingRefine] = useState<Set<number>>(new Set());
 
-  const isCorrectAnswer = (selected: string | undefined, correct: string) => {
-    if (!selected) return false;
-    return selected.trim().toLowerCase() === correct.trim().toLowerCase();
+  const renderAnswerDetail = (q: Question, userAns: UserAnswer | undefined) => {
+    const type = getQuestionType(q);
+
+    if (type === 'matching') {
+      return (
+        <div className="grid gap-3">
+          {(q.pairs ?? []).map((pair, i) => {
+            const picked = userAns?.matchAnswers?.[pair.prompt];
+            const ok = sameStr(picked, pair.answer);
+            return (
+              <div key={i} className={`p-4 rounded-xl border-2 ${ok ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
+                <span className="font-bold text-slate-900 dark:text-white">{pair.prompt}</span>
+                <span className="mx-2 text-slate-400">→</span>
+                <span className={ok ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-red-700 dark:text-red-300 font-bold'}>{picked || '—'}</span>
+                {!ok && <span className="ml-3 text-[10px] font-black text-emerald-600 dark:text-emerald-400">✓ {pair.answer}</span>}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (type === 'dropdown') {
+      return (
+        <div className="grid gap-3">
+          {(q.blanks ?? []).map((blank, i) => {
+            const picked = userAns?.blankAnswers?.[i];
+            const ok = sameStr(picked, blank.correctAnswer);
+            return (
+              <div key={i} className={`p-4 rounded-xl border-2 ${ok ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
+                {blank.label && <span className="font-bold text-slate-900 dark:text-white mr-2">{blank.label}:</span>}
+                <span className={ok ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-red-700 dark:text-red-300 font-bold'}>{picked || '—'}</span>
+                {!ok && <span className="ml-3 text-[10px] font-black text-emerald-600 dark:text-emerald-400">✓ {blank.correctAnswer}</span>}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // single / multiple — option grid
+    const correctSet = getCorrectAnswers(q);
+    const userPicks = type === 'multiple'
+      ? userAns?.selectedOptions ?? []
+      : userAns?.selectedOption ? [userAns.selectedOption] : [];
+    return (
+      <div className="grid gap-3">
+        {q.options.map((opt, oIdx) => {
+          const isCorrectChoice = correctSet.some(c => sameStr(c, opt));
+          const isUserChoice = userPicks.some(p => sameStr(p, opt));
+          return (
+            <div
+              key={oIdx}
+              className={`p-4 rounded-xl border-2 flex items-center transition-colors ${
+                isCorrectChoice
+                  ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100 font-bold'
+                  : isUserChoice
+                  ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-900 dark:text-red-100'
+                  : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+              }`}
+            >
+              <span className="w-8 font-black">{String.fromCharCode(65 + oIdx)})</span>
+              <span>{opt}</span>
+              {isUserChoice && <span className="ml-auto mr-2 text-[10px] font-black opacity-70">YOUR PICK</span>}
+              {isCorrectChoice && <span className="text-[10px] font-black">CORRECT</span>}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   const toggleExplanation = (id: number) => {
@@ -78,28 +149,7 @@ const QuestionReviewSection: React.FC<QuestionReviewSectionProps> = ({ questions
 
               {isExpanded && (
                 <div className="p-8 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-700 space-y-6 animate-fade-in">
-                  <div className="grid gap-3">
-                    {q.options.map((opt, oIdx) => {
-                      const isCorrectChoice = isCorrectAnswer(opt, q.correctAnswer);
-                      const isUserChoice = opt === userAns?.selectedOption;
-                      return (
-                        <div
-                          key={oIdx}
-                          className={`p-4 rounded-xl border-2 flex items-center transition-colors ${
-                            isCorrectChoice
-                              ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100 font-bold'
-                              : isUserChoice
-                              ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-900 dark:text-red-100'
-                              : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-                          }`}
-                        >
-                          <span className="w-8 font-black">{String.fromCharCode(65 + oIdx)})</span>
-                          <span>{opt}</span>
-                          {isCorrectChoice && <span className="ml-auto text-[10px] font-black">CORRECT</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {renderAnswerDetail(q, userAns)}
 
                   {q.sourceQuote && (
                     <div className="bg-amber-50/50 dark:bg-amber-900/10 p-5 rounded-2xl border border-amber-100 dark:border-amber-900/30">

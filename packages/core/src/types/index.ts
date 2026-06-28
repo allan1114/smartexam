@@ -1,9 +1,45 @@
 
+/**
+ * Interaction style of a question.
+ * - 'single'   : one correct option (classic MCQ — the historical default).
+ * - 'multiple' : "Choose two / three" — user must select an exact set of options.
+ * - 'matching' : drag-drop style — left prompts each paired to a right answer.
+ * - 'dropdown' : hotspot style — one or more blanks, each a dropdown of options.
+ * Absent/undefined is treated as 'single' for backward compatibility.
+ */
+export type QuestionType = 'single' | 'multiple' | 'matching' | 'dropdown';
+
+/** A single left→right pairing for a 'matching' question. */
+export interface MatchPair {
+  prompt: string; // left-side item
+  answer: string; // the correct right-side choice for this prompt
+}
+
+/** A single dropdown blank for a 'dropdown' question. */
+export interface DropdownBlank {
+  label?: string; // optional caption shown next to the dropdown
+  options: string[];
+  correctAnswer: string; // must equal one of `options`
+}
+
 export interface Question {
   id: number;
+  /** Absent/undefined ⇒ 'single'. */
+  type?: QuestionType;
   question: string;
   options: string[];
+  /**
+   * Single correct option (kept populated for every type for backward
+   * compatibility and legacy code paths; for non-single types it holds a
+   * canonical/derived value).
+   */
   correctAnswer: string;
+  /** 'multiple' — the exact required set of correct options. */
+  correctAnswers?: string[];
+  /** 'matching' — left→right correct pairings. */
+  pairs?: MatchPair[];
+  /** 'dropdown' — per-blank options + correct choice. */
+  blanks?: DropdownBlank[];
   explanation: string;
   sourceQuote: string; // New field for grounding
   refinedInsight?: string;
@@ -49,7 +85,14 @@ export interface QuestionBank {
 
 export interface UserAnswer {
   questionId: number;
+  /** Single selection (back-compat). For non-single types holds a stringified summary. */
   selectedOption: string;
+  /** 'multiple' — the set of options the user selected. */
+  selectedOptions?: string[];
+  /** 'matching' — prompt → chosen answer. */
+  matchAnswers?: Record<string, string>;
+  /** 'dropdown' — chosen option per blank (index-aligned with Question.blanks). */
+  blankAnswers?: string[];
   isCorrect: boolean;
   timeSpent: number;
 }

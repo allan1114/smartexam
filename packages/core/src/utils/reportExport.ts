@@ -1,4 +1,5 @@
 import { ExamResult, Question, UserAnswer } from '../types';
+import { getQuestionType, getCorrectAnswers, formatCorrectAnswer, formatUserResponse } from './answerModel';
 
 /**
  * Self-contained HTML exam-report generator.
@@ -24,19 +25,40 @@ const sameAnswer = (a: string | undefined, b: string | undefined): boolean =>
 const renderQuestion = (q: Question, idx: number, userAns: UserAnswer | undefined): string => {
   const isCorrect = userAns?.isCorrect ?? false;
   const optionLetters = 'ABCDEFGH';
+  const type = getQuestionType(q);
 
-  const options = q.options
-    .map((opt, oIdx) => {
-      const isCorrectChoice = sameAnswer(opt, q.correctAnswer);
-      const isUserChoice = opt === userAns?.selectedOption;
-      const cls = isCorrectChoice ? 'opt correct' : isUserChoice ? 'opt wrong' : 'opt';
-      const tags: string[] = [];
-      if (isCorrectChoice) tags.push('<span class="tag tag-correct">正確答案 Correct</span>');
-      if (isUserChoice && !isCorrectChoice) tags.push('<span class="tag tag-wrong">你的選擇 Your pick</span>');
-      if (isUserChoice && isCorrectChoice) tags.push('<span class="tag tag-correct">你的選擇 Your pick</span>');
-      return `<li class="${cls}"><span class="letter">${optionLetters[oIdx] || '·'})</span><span class="opt-text">${escapeHtml(opt)}</span>${tags.join('')}</li>`;
-    })
-    .join('');
+  let options: string;
+  if (type === 'matching' || type === 'dropdown') {
+    // Render each pair/blank as a row: prompt/label → your pick (+ correct if wrong).
+    const rows = type === 'matching'
+      ? (q.pairs ?? []).map(p => ({ left: p.prompt, picked: userAns?.matchAnswers?.[p.prompt], correct: p.answer }))
+      : (q.blanks ?? []).map((b, i) => ({ left: b.label || `#${i + 1}`, picked: userAns?.blankAnswers?.[i], correct: b.correctAnswer }));
+    options = rows
+      .map(row => {
+        const ok = sameAnswer(row.picked, row.correct);
+        const tags = ok
+          ? '<span class="tag tag-correct">正確 Correct</span>'
+          : `<span class="tag tag-wrong">你的選擇 Your pick</span><span class="tag tag-correct">✓ ${escapeHtml(row.correct)}</span>`;
+        return `<li class="opt ${ok ? 'correct' : 'wrong'}"><span class="opt-text"><strong>${escapeHtml(row.left)}</strong> → ${escapeHtml(row.picked || '—')}</span>${tags}</li>`;
+      })
+      .join('');
+  } else {
+    const correctSet = getCorrectAnswers(q);
+    const userPicks = type === 'multiple'
+      ? userAns?.selectedOptions ?? []
+      : userAns?.selectedOption ? [userAns.selectedOption] : [];
+    options = q.options
+      .map((opt, oIdx) => {
+        const isCorrectChoice = correctSet.some(c => sameAnswer(c, opt));
+        const isUserChoice = userPicks.some(p => sameAnswer(p, opt));
+        const cls = isCorrectChoice ? 'opt correct' : isUserChoice ? 'opt wrong' : 'opt';
+        const tags: string[] = [];
+        if (isCorrectChoice) tags.push('<span class="tag tag-correct">正確答案 Correct</span>');
+        if (isUserChoice) tags.push('<span class="tag tag-wrong">你的選擇 Your pick</span>');
+        return `<li class="${cls}"><span class="letter">${optionLetters[oIdx] || '·'})</span><span class="opt-text">${escapeHtml(opt)}</span>${tags.join('')}</li>`;
+      })
+      .join('');
+  }
 
   const evidence = q.sourceQuote
     ? `<div class="evidence"><div class="label">Document Evidence</div><blockquote>${escapeHtml(q.sourceQuote)}</blockquote></div>`
@@ -46,8 +68,9 @@ const renderQuestion = (q: Question, idx: number, userAns: UserAnswer | undefine
     ? `<div class="explanation"><div class="label">Explanation</div><p>${escapeHtml(q.explanation)}</p></div>`
     : '';
 
-  const userPicked = userAns?.selectedOption
-    ? escapeHtml(userAns.selectedOption)
+  const userResponse = formatUserResponse(q, userAns);
+  const userPicked = userResponse
+    ? escapeHtml(userResponse)
     : '<em>未作答 / Not answered</em>';
 
   return `
@@ -62,7 +85,7 @@ const renderQuestion = (q: Question, idx: number, userAns: UserAnswer | undefine
       <ul class="opts">${options}</ul>
       <div class="answers">
         <div><strong>你的答案 Your answer:</strong> ${userPicked}</div>
-        <div><strong>正確答案 Correct answer:</strong> ${escapeHtml(q.correctAnswer)}</div>
+        <div><strong>正確答案 Correct answer:</strong> ${escapeHtml(formatCorrectAnswer(q))}</div>
       </div>
       ${evidence}
       ${explanation}
