@@ -9,9 +9,16 @@ import { DEFAULT_MODEL, getFallbackModel, isOverloadError, isModelUnavailableErr
 const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GEMINI_FILES_UPLOAD_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
 
-// Hard ceiling on a single generateContent request so a hung connection can't
-// block exam creation indefinitely.
+// Default ceiling on a single generateContent request so a hung connection
+// can't block exam creation indefinitely. Heavier requests (large PDFs / long
+// documents) pass a longer per-call timeout — reading a 50MB PDF and building a
+// question bank legitimately takes longer than 90s, and a too-short deadline was
+// the cause of the recurring NETWORK_TIMEOUT on big files.
 const REQUEST_TIMEOUT_MS = 90000;
+// Generous ceiling for file-backed extraction (big PDFs are slow to ingest).
+const FILE_REQUEST_TIMEOUT_MS = 240000;
+// Middle ground for large pasted/Google-Docs text.
+const LARGE_TEXT_REQUEST_TIMEOUT_MS = 150000;
 
 // Gemini caps a single generateContent request (inline data included) at ~20MB.
 // base64 inflates the raw bytes by ~33%, so once the ENCODED payload passes
@@ -213,7 +220,7 @@ const callMinimax = async (contents: any, config?: any): Promise<{ text: string 
     );
   }
 
-  const { systemInstruction, responseMimeType, temperature, maxOutputTokens } = config || {};
+  const { systemInstruction, responseMimeType, temperature, maxOutputTokens, timeoutMs } = config || {};
   const { messages, hasFile } = buildMinimaxMessages(contents, systemInstruction);
 
   if (hasFile) {
@@ -237,7 +244,7 @@ const callMinimax = async (contents: any, config?: any): Promise<{ text: string 
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
-  });
+  }, timeoutMs);
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({} as any));
@@ -261,14 +268,21 @@ const callMinimax = async (contents: any, config?: any): Promise<{ text: string 
  * fetch() wrapper that aborts after REQUEST_TIMEOUT_MS. A timeout is surfaced as
  * a retryable "deadline exceeded" error (see isRetryableError).
  */
-const fetchWithTimeout = async (input: string, init: RequestInit): Promise<Response> => {
+const fetchWithTimeout = async (
+  input: string,
+  init: RequestInit,
+  timeoutMs: number = REQUEST_TIMEOUT_MS
+): Promise<Response> => {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(input, { ...init, signal: controller.signal });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error(`NETWORK_TIMEOUT: 請求超過 ${REQUEST_TIMEOUT_MS / 1000}s 未完成 (deadline exceeded)。請減少題目數量或稍後再試。`);
+      throw new Error(
+        `NETWORK_TIMEOUT: 請求超過 ${Math.round(timeoutMs / 1000)}s 未完成 (deadline exceeded)。` +
+          `如果係大型 PDF，請試下：1) 減少題目數量 2) 喺「內容範圍」只揀部分章節 3) 將 PDF 分拆成細檔。`
+      );
     }
     throw err;
   } finally {
@@ -295,6 +309,9 @@ const callGeminiViaProxy = async (
   const useProxy = localStorage.getItem('smart_exam_use_proxy') === 'true';
   const proxyUrl = localStorage.getItem('smart_exam_proxy_url') || '/api/proxy-gemini';
   const apiKey = localStorage.getItem('smart_exam_api_key') || '';
+
+  // Per-call request timeout (not a Gemini field — never forwarded upstream).
+  const timeoutMs: number | undefined = config?.timeoutMs;
 
   if (!useProxy && !apiKey) {
     throw new Error('NO_API_KEY: No API key configured. Click ⚙️ Settings → paste your Gemini API key → Save Settings.');
@@ -324,7 +341,7 @@ const callGeminiViaProxy = async (
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }, timeoutMs);
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -334,11 +351,14 @@ const callGeminiViaProxy = async (
     return { text: extractText(await resp.json()) };
   }
 
+  // Proxy mode: strip the client-only timeoutMs so it never leaks into the
+  // upstream generationConfig (Gemini would reject the unknown field).
+  const { timeoutMs: _omitTimeout, ...forwardConfig } = config || {};
   const resp = await fetchWithTimeout(proxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, contents, config }),
-  });
+    body: JSON.stringify({ model, contents, config: forwardConfig }),
+  }, timeoutMs);
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
@@ -472,6 +492,15 @@ export const extractQuestionBank = async (
   // Reused across the retry/fallback attempts below so we never re-upload.
   const fileParts = await resolveFileParts(source);
 
+  // A file-backed or very long document needs much more than the default 90s to
+  // ingest + generate a bank — give it a generous per-call deadline. "heavy"
+  // requests also skip the inner network-retry loop so a timeout doesn't get
+  // multiplied into many doomed attempts (the old cause of the 6-minute hang).
+  const isHeavy = fileParts.length > 0 || textContext.length > 40000;
+  const requestTimeoutMs = fileParts.length > 0
+    ? FILE_REQUEST_TIMEOUT_MS
+    : (textContext.length > 40000 ? LARGE_TEXT_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+
   const apiCall = async (modelOverride: string) => {
     return await callGeminiViaProxy(
       modelOverride,
@@ -586,12 +615,18 @@ export const extractQuestionBank = async (
           },
           required: ["caseType", "questions"]
         },
+        timeoutMs: requestTimeoutMs,
       }
     );
   };
 
   const runOnce = async (): Promise<{ questions: Question[]; caseType: CaseType }> => {
-    const response = await callWithFallback(finalModelName, (m) => fetchWithRetry(() => apiCall(m)));
+    // Heavy (file/large-doc) calls already use a long deadline; don't let the
+    // inner retry loop multiply a slow request into several doomed attempts.
+    // Transient overload is still handled by callWithFallback (model fallback)
+    // and the outer reduced-pool retry below.
+    const maxRetries = isHeavy ? 0 : 3;
+    const response = await callWithFallback(finalModelName, (m) => fetchWithRetry(() => apiCall(m), maxRetries));
     const rawText = response.text;
     if (!rawText) throw new Error("EMPTY_RESPONSE: AI returned an empty result.");
 
@@ -632,8 +667,13 @@ export const extractQuestionBank = async (
       // A truncated/over-large response shows up as PARSING_ERROR or EMPTY_RESPONSE.
       // Auto-retry ONCE with a smaller CASE-B pool target before giving up — this
       // is what the old error message asked the user to do by hand.
+      // A truncated/over-large response → PARSING_ERROR or EMPTY_RESPONSE. A
+      // request that ran out of time → NETWORK_TIMEOUT; a smaller pool generates
+      // less output and is more likely to finish within the deadline, so retry
+      // it once too instead of surfacing the timeout straight away.
       const m = firstErr instanceof Error ? firstErr.message : String(firstErr);
-      const recoverable = m.includes('PARSING_ERROR') || m.includes('EMPTY_RESPONSE');
+      const recoverable =
+        m.includes('PARSING_ERROR') || m.includes('EMPTY_RESPONSE') || m.includes('NETWORK_TIMEOUT');
       const reduced = Math.max(15, Math.floor(effectivePoolSize / 2));
       if (recoverable && reduced < effectivePoolSize) {
         logger.warn(
