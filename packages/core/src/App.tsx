@@ -37,6 +37,10 @@ const App: React.FC = () => {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [results, setResults] = useState<ExamResult | null>(null);
   const [error, setError] = useState<{message: string, type: string} | null>(null);
+  // Non-fatal notice (e.g. question bank too big for localStorage) — amber banner.
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  // Live extraction progress shown on the loading screen during multi-round extraction.
+  const [loadingProgress, setLoadingProgress] = useState<string | null>(null);
   const [history, setHistory] = useState<ExamResult[]>([]);
   const [isDark, setIsDark] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -146,7 +150,17 @@ const App: React.FC = () => {
     setConfig(examConfig);
     setCurrentState(AppState.LOADING);
     setError(null);
+    setStorageWarning(null);
+    setLoadingProgress(null);
     setIsRetaking(false);
+
+    const storageWarningMsg = '題庫太大，未能完整儲存到瀏覽器。本次考試不受影響，但下次可能需要重新抽題。';
+    const onExtractionProgress = ({ extracted, round }: { extracted: number; round: number }) =>
+      setLoadingProgress(
+        round > 1
+          ? `已抽取 ${extracted} 題，繼續掃描文件中…（第 ${round} 輪）`
+          : `已抽取 ${extracted} 題…`
+      );
 
     try {
       // Generate document hash for cache lookup (also used by sessionStorage layer)
@@ -158,50 +172,74 @@ const App: React.FC = () => {
       //    locally with Math.random(), guaranteeing variety across attempts and
       //    zero additional Gemini calls.
       let bank = loadQuestionBank(docHash);
+
+      // Banks built before continuation extraction have no extractionComplete
+      // flag: a CASE A bank from that era was silently frozen at whatever a
+      // single response could carry (~100 of a 500-question PDF). Rebuild it
+      // once so the full document becomes reachable; the flag stops this from
+      // ever repeating.
+      if (bank && bank.caseType === 'A' && bank.extractionComplete !== true) {
+        logger.info(
+          `CASE A bank for ${docHash} predates continuation extraction (${bank.questions.length} questions) — rebuilding in full.`,
+          'App.startExam'
+        );
+        deleteQuestionBank(docHash);
+        bank = null;
+      }
+
       if (!bank) {
         const targetPoolSize = Math.max(examConfig.totalQuestions * 3, 30);
-        const { questions: bankQuestions, caseType } = await extractQuestionBank(
+        const { questions: bankQuestions, caseType, extractionComplete } = await extractQuestionBank(
           docSource,
           targetPoolSize,
           examConfig.model,
           examConfig.answerFormat,
           examConfig.contentRange,
-          examConfig.temperature ?? 0.3
+          examConfig.temperature ?? 0.3,
+          onExtractionProgress
         );
         if (!bankQuestions || bankQuestions.length === 0) {
           throw new Error("NO_QUESTIONS_FOUND: AI failed to extract any valid questions from the document.");
         }
-        bank = saveQuestionBank({
+        const saved = saveQuestionBank({
           documentHash: docHash,
           questions: bankQuestions,
           caseType,
           modelUsed: examConfig.model,
+          extractionComplete,
         });
+        bank = saved.bank;
+        if (!saved.persisted) setStorageWarning(storageWarningMsg);
       }
 
-      // 1b) HONOR THE REQUESTED COUNT. If the cached/just-built bank holds fewer
-      //     questions than the user asked for (e.g. a short doc, or a bank that
-      //     was originally built for a smaller exam), top it up by generating the
-      //     deficit and merging (de-duplicated) until we have enough.
-      const TOPUP_MAX_ATTEMPTS = 3;
-      let topupAttempts = 0;
-      while (bank.questions.length < examConfig.totalQuestions && topupAttempts < TOPUP_MAX_ATTEMPTS) {
-        topupAttempts++;
-        const deficit = examConfig.totalQuestions - bank.questions.length;
-        const requestSize = Math.max(deficit * 2, 10);
-        const before = bank.questions.length;
-        const { questions: extra } = await extractQuestionBank(
-          docSource,
-          requestSize,
-          examConfig.model,
-          examConfig.answerFormat,
-          examConfig.contentRange,
-          examConfig.temperature ?? 0.3
-        );
-        const merged = extra && extra.length > 0 ? appendToQuestionBank(docHash, extra) : null;
-        if (merged) bank = merged;
-        // No net-new unique questions this round → the document can't yield more.
-        if (bank.questions.length <= before) break;
+      // 1b) HONOR THE REQUESTED COUNT — CASE B only. A CASE A bank now already
+      //     holds everything the document contains (continuation extraction),
+      //     so re-running extraction can only return duplicates; fall through
+      //     to the NOT_ENOUGH_QUESTIONS check which reports the true maximum.
+      if (bank.caseType !== 'A') {
+        const TOPUP_MAX_ATTEMPTS = 3;
+        let topupAttempts = 0;
+        while (bank.questions.length < examConfig.totalQuestions && topupAttempts < TOPUP_MAX_ATTEMPTS) {
+          topupAttempts++;
+          const deficit = examConfig.totalQuestions - bank.questions.length;
+          const requestSize = Math.max(deficit * 2, 10);
+          const before = bank.questions.length;
+          const { questions: extra } = await extractQuestionBank(
+            docSource,
+            requestSize,
+            examConfig.model,
+            examConfig.answerFormat,
+            examConfig.contentRange,
+            examConfig.temperature ?? 0.3
+          );
+          const appended = extra && extra.length > 0 ? appendToQuestionBank(docHash, extra) : null;
+          if (appended?.bank) {
+            bank = appended.bank;
+            if (!appended.persisted) setStorageWarning(storageWarningMsg);
+          }
+          // No net-new unique questions this round → the document can't yield more.
+          if (bank.questions.length <= before) break;
+        }
       }
 
       // If we still can't reach the requested count, tell the user the real max
@@ -238,6 +276,8 @@ const App: React.FC = () => {
       const type = errMsg.split(':')[0] || 'GENERAL_ERROR';
       setError({ message: errMsg.replace(`${type}: `, ''), type });
       setCurrentState(AppState.SETUP);
+    } finally {
+      setLoadingProgress(null);
     }
   };
 
@@ -475,6 +515,24 @@ const App: React.FC = () => {
 
         <main className="flex-grow container mx-auto px-4 py-8 max-w-5xl">
         {renderError()}
+        {storageWarning && (
+          <div className="mb-6 p-5 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl shadow-sm animate-slide-up flex items-start space-x-4 dark:bg-amber-900/20 dark:border-amber-600">
+            <div className="bg-amber-500 p-2 rounded-lg mt-0.5">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <div className="flex-1">
+              <h4 className="font-black text-amber-900 dark:text-amber-300 text-sm uppercase tracking-wider mb-1">儲存空間不足</h4>
+              <p className="text-amber-700 dark:text-amber-400 font-medium text-sm leading-relaxed">{storageWarning}</p>
+            </div>
+            <button
+              onClick={() => setStorageWarning(null)}
+              className="text-amber-400 hover:text-amber-600 font-black text-lg leading-none"
+              aria-label="Dismiss warning"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {currentState === AppState.HOME && (
           <Home
@@ -497,7 +555,7 @@ const App: React.FC = () => {
             onRegenerateBank={(hash) => deleteQuestionBank(hash)}
           />
         )}
-        {currentState === AppState.LOADING && <LoadingScreen />}
+        {currentState === AppState.LOADING && <LoadingScreen progressText={loadingProgress} />}
         {currentState === AppState.EXAM && config && questions.length > 0 && (
           <ExamPortal questions={questions} config={config} onFinish={finishExam} />
         )}

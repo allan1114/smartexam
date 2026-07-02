@@ -5,7 +5,7 @@ import App from '../App';
 
 // Mock the dependencies
 vi.mock('../services/geminiService', () => ({
-  extractQuestionBank: vi.fn(() => Promise.resolve({ questions: [], caseType: 'B' })),
+  extractQuestionBank: vi.fn(() => Promise.resolve({ questions: [], caseType: 'B', extractionComplete: true })),
   parseDocumentToQuestions: vi.fn(() => Promise.resolve([])),
   refineMasteryInsight: vi.fn(() => Promise.resolve('Mock insight')),
   getChatbotResponse: vi.fn(() => Promise.resolve('Mock response')),

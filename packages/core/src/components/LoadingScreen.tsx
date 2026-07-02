@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 
-const LoadingScreen: React.FC = () => {
+interface LoadingScreenProps {
+  /** Live status (e.g. extraction progress). Overrides the rotating messages when set. */
+  progressText?: string | null;
+}
+
+const LoadingScreen: React.FC<LoadingScreenProps> = ({ progressText }) => {
   const [messageIndex, setMessageIndex] = useState(0);
   const messages = [
     "Identifying existing questions in your document...",
@@ -30,7 +35,7 @@ const LoadingScreen: React.FC = () => {
       </div>
       
       <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2">Smart AI is Processing</h2>
-      <p className="text-indigo-600 dark:text-indigo-400 font-medium transition-all duration-500 text-center px-4">{messages[messageIndex]}</p>
+      <p className="text-indigo-600 dark:text-indigo-400 font-medium transition-all duration-500 text-center px-4">{progressText || messages[messageIndex]}</p>
       
       <div className="mt-12 max-w-sm w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
         <div className="bg-indigo-600 dark:bg-indigo-500 h-full animate-loading-bar"></div>

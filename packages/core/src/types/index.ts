@@ -81,6 +81,13 @@ export interface QuestionBank {
   poolSize: number;
   createdAt: number;
   modelUsed: string;
+  /**
+   * True when extraction ran to a clean finish (no truncation / round cap hit).
+   * Absent on banks built before continuation extraction existed — those CASE A
+   * banks are treated as suspect and rebuilt once (they were frozen at whatever
+   * the old single-call output limit allowed).
+   */
+  extractionComplete?: boolean;
 }
 
 export interface UserAnswer {

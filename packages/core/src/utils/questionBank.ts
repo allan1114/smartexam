@@ -3,7 +3,10 @@ import { logger } from './logger';
 
 const BANK_KEY_PREFIX = 'smart_exam_bank_';
 const BANK_INDEX_KEY = 'smart_exam_bank_index';
-const MAX_BANKS = 10;
+// Full CASE A banks can reach ~0.5-1MB each (e.g. a 500-question PDF); 5 banks
+// keeps the worst case around the common 5MB localStorage quota alongside the
+// document library and exam history.
+const MAX_BANKS = 5;
 
 const deepCloneAsLocked = (questions: Question[]): OriginalQuestion[] =>
   questions.map(q => ({ ...q, options: [...q.options], _locked: true as const }));
@@ -32,12 +35,55 @@ export const loadQuestionBank = (documentHash: string): QuestionBank | null => {
   }
 };
 
+/**
+ * Evict the oldest cached bank other than `keepHash`. Returns true when a bank
+ * was removed. Used both for the LRU cap and to free space when a large bank
+ * fails to persist on the first attempt.
+ */
+const evictOldestBank = (keepHash: string): boolean => {
+  const index = getBankIndex();
+  const evict = index.find(h => h !== keepHash);
+  if (!evict) return false;
+  try {
+    localStorage.removeItem(BANK_KEY_PREFIX + evict);
+    writeBankIndex(index.filter(h => h !== evict));
+    logger.warn(`Evicted oldest question bank to free space: ${evict}`, 'questionBank.evictOldestBank');
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** setItem with a single evict-oldest-and-retry on quota failure. */
+const persistBank = (bank: QuestionBank, source: string): boolean => {
+  const key = BANK_KEY_PREFIX + bank.documentHash;
+  const payload = JSON.stringify(bank);
+  try {
+    localStorage.setItem(key, payload);
+    return true;
+  } catch {
+    if (evictOldestBank(bank.documentHash)) {
+      try {
+        localStorage.setItem(key, payload);
+        return true;
+      } catch {
+        /* fall through */
+      }
+    }
+    // Non-fatal by design: the in-memory bank still serves this exam; it just
+    // won't survive a reload. Surfaced to the caller via `persisted: false`.
+    logger.warn('Failed to persist question bank (localStorage quota?)', source);
+    return false;
+  }
+};
+
 export const saveQuestionBank = (params: {
   documentHash: string;
   questions: Question[];
   caseType: CaseType;
   modelUsed: string;
-}): QuestionBank => {
+  extractionComplete?: boolean;
+}): { bank: QuestionBank; persisted: boolean } => {
   const bank: QuestionBank = {
     documentHash: params.documentHash,
     questions: deepCloneAsLocked(params.questions),
@@ -45,53 +91,68 @@ export const saveQuestionBank = (params: {
     poolSize: params.questions.length,
     createdAt: Date.now(),
     modelUsed: params.modelUsed,
+    extractionComplete: params.extractionComplete,
   };
 
-  try {
-    localStorage.setItem(BANK_KEY_PREFIX + bank.documentHash, JSON.stringify(bank));
-    const index = getBankIndex().filter(h => h !== bank.documentHash);
-    index.push(bank.documentHash);
-    if (index.length > MAX_BANKS) {
-      const evict = index.shift();
-      if (evict) {
-        localStorage.removeItem(BANK_KEY_PREFIX + evict);
-        logger.warn(`Bank limit (${MAX_BANKS}) reached — evicted oldest bank: ${evict}`, 'questionBank.saveQuestionBank');
+  const persisted = persistBank(bank, 'questionBank.saveQuestionBank');
+  if (persisted) {
+    try {
+      const index = getBankIndex().filter(h => h !== bank.documentHash);
+      index.push(bank.documentHash);
+      if (index.length > MAX_BANKS) {
+        const evict = index.shift();
+        if (evict) {
+          localStorage.removeItem(BANK_KEY_PREFIX + evict);
+          logger.warn(`Bank limit (${MAX_BANKS}) reached — evicted oldest bank: ${evict}`, 'questionBank.saveQuestionBank');
+        }
       }
+      writeBankIndex(index);
+      logger.info(`Question bank saved: ${bank.documentHash} (poolSize=${bank.poolSize}, case=${bank.caseType})`, 'questionBank.saveQuestionBank');
+    } catch (e) {
+      logger.warn('Failed to update question bank index', 'questionBank.saveQuestionBank', e);
     }
-    writeBankIndex(index);
-    logger.info(`Question bank saved: ${bank.documentHash} (poolSize=${bank.poolSize}, case=${bank.caseType})`, 'questionBank.saveQuestionBank');
-  } catch (e) {
-    logger.error('Failed to save question bank', 'questionBank.saveQuestionBank', e);
   }
 
-  return bank;
+  return { bank, persisted };
 };
 
 const normalizeQuestionText = (q: string): string =>
   q.trim().toLowerCase().replace(/\s+/g, ' ');
 
 /**
+ * Identity key for de-duplication: question stem PLUS the (order-insensitive)
+ * option set. Keying on the stem alone wrongly collapsed distinct questions
+ * that share boilerplate wording (e.g. "Which of the following is correct?")
+ * but have different options. Shared with the continuation-extraction merge in
+ * geminiService so both layers dedup identically.
+ */
+export const questionDedupKey = (q: Question): string =>
+  normalizeQuestionText(q.question) +
+  '||' +
+  (q.options ?? []).map(normalizeQuestionText).sort().join('|');
+
+/**
  * Merge freshly generated questions into an existing bank, de-duplicating by
- * normalized question text. Used by the "top-up" flow when the cached pool is
+ * stem + option set. Used by the "top-up" flow when the cached pool is
  * smaller than the number of questions the user asked for, so the requested
- * count is always honored. Returns the updated bank.
+ * count is always honored. Returns the updated bank and whether it persisted.
  */
 export const appendToQuestionBank = (
   documentHash: string,
   newQuestions: Question[]
-): QuestionBank | null => {
+): { bank: QuestionBank | null; persisted: boolean } => {
   const existing = loadQuestionBank(documentHash);
-  if (!existing) return null;
+  if (!existing) return { bank: null, persisted: false };
 
-  const seen = new Set(existing.questions.map(q => normalizeQuestionText(q.question)));
+  const seen = new Set(existing.questions.map(questionDedupKey));
   const toAdd = newQuestions.filter(q => {
-    const key = normalizeQuestionText(q.question);
+    const key = questionDedupKey(q);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 
-  if (toAdd.length === 0) return existing;
+  if (toAdd.length === 0) return { bank: existing, persisted: true };
 
   const merged: QuestionBank = {
     ...existing,
@@ -99,18 +160,15 @@ export const appendToQuestionBank = (
     poolSize: existing.questions.length + toAdd.length,
   };
 
-  try {
-    localStorage.setItem(BANK_KEY_PREFIX + documentHash, JSON.stringify(merged));
+  const persisted = persistBank(merged, 'questionBank.appendToQuestionBank');
+  if (persisted) {
     logger.info(
       `Question bank topped up: ${documentHash} (+${toAdd.length}, poolSize=${merged.poolSize})`,
       'questionBank.appendToQuestionBank'
     );
-  } catch (e) {
-    logger.error('Failed to append to question bank', 'questionBank.appendToQuestionBank', e);
-    return existing;
   }
-
-  return merged;
+  // Even when persistence failed the merged bank is real for this session.
+  return { bank: merged, persisted };
 };
 
 export const deleteQuestionBank = (documentHash: string): void => {

@@ -1,0 +1,137 @@
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import {
+  saveQuestionBank,
+  loadQuestionBank,
+  appendToQuestionBank,
+  questionDedupKey,
+} from '../questionBank';
+import { Question } from '../../types';
+
+const q = (id: number, question: string, options: string[] = ['A', 'B', 'C']): Question => ({
+  id,
+  question,
+  options,
+  correctAnswer: options[0],
+  explanation: 'e',
+  sourceQuote: 's',
+  topic: 'T',
+});
+
+describe('questionBank', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('questionDedupKey', () => {
+    it('same stem + different options are DISTINCT', () => {
+      const a = q(1, 'Which of the following is correct?', ['Apple', 'Pear']);
+      const b = q(2, 'Which of the following is correct?', ['Cat', 'Dog']);
+      expect(questionDedupKey(a)).not.toBe(questionDedupKey(b));
+    });
+
+    it('same stem + same options in different order are EQUAL', () => {
+      const a = q(1, 'Q?', ['X', 'Y', 'Z']);
+      const b = q(2, ' q? ', ['Z', 'X', 'Y']);
+      expect(questionDedupKey(a)).toBe(questionDedupKey(b));
+    });
+  });
+
+  describe('saveQuestionBank', () => {
+    it('persists and reports persisted=true', () => {
+      const { bank, persisted } = saveQuestionBank({
+        documentHash: 'h1',
+        questions: [q(1, 'Q1')],
+        caseType: 'A',
+        modelUsed: 'm',
+        extractionComplete: true,
+      });
+      expect(persisted).toBe(true);
+      expect(bank.extractionComplete).toBe(true);
+      expect(loadQuestionBank('h1')?.questions).toHaveLength(1);
+      expect(loadQuestionBank('h1')?.extractionComplete).toBe(true);
+    });
+
+    it('reports persisted=false when localStorage keeps failing', () => {
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('QuotaExceededError');
+      });
+      const { bank, persisted } = saveQuestionBank({
+        documentHash: 'h2',
+        questions: [q(1, 'Q1')],
+        caseType: 'A',
+        modelUsed: 'm',
+      });
+      expect(persisted).toBe(false);
+      // In-memory bank still usable for this session.
+      expect(bank.questions).toHaveLength(1);
+    });
+
+    it('evicts an older bank and retries when the first save fails', () => {
+      saveQuestionBank({ documentHash: 'old', questions: [q(1, 'Old')], caseType: 'A', modelUsed: 'm' });
+
+      const realSetItem = Storage.prototype.setItem;
+      let failedOnce = false;
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+        if (key === 'smart_exam_bank_big' && !failedOnce) {
+          failedOnce = true;
+          throw new DOMException('QuotaExceededError');
+        }
+        realSetItem.call(this, key, value);
+      });
+
+      const { persisted } = saveQuestionBank({
+        documentHash: 'big',
+        questions: [q(1, 'Big')],
+        caseType: 'A',
+        modelUsed: 'm',
+      });
+      expect(persisted).toBe(true);
+      expect(loadQuestionBank('old')).toBeNull(); // evicted to make room
+      expect(loadQuestionBank('big')?.questions).toHaveLength(1);
+    });
+
+    it('keeps at most 5 banks (LRU)', () => {
+      for (let i = 1; i <= 6; i++) {
+        saveQuestionBank({ documentHash: `h${i}`, questions: [q(1, `Q${i}`)], caseType: 'A', modelUsed: 'm' });
+      }
+      expect(loadQuestionBank('h1')).toBeNull(); // oldest evicted
+      expect(loadQuestionBank('h6')).not.toBeNull();
+    });
+  });
+
+  describe('appendToQuestionBank', () => {
+    it('same-stem different-options questions both survive', () => {
+      saveQuestionBank({
+        documentHash: 'h',
+        questions: [q(1, 'Which is correct?', ['Apple', 'Pear'])],
+        caseType: 'A',
+        modelUsed: 'm',
+      });
+      const { bank, persisted } = appendToQuestionBank('h', [q(2, 'Which is correct?', ['Cat', 'Dog'])]);
+      expect(persisted).toBe(true);
+      expect(bank?.questions).toHaveLength(2);
+    });
+
+    it('true duplicates are dropped', () => {
+      saveQuestionBank({
+        documentHash: 'h',
+        questions: [q(1, 'Q1', ['A', 'B'])],
+        caseType: 'A',
+        modelUsed: 'm',
+      });
+      const { bank } = appendToQuestionBank('h', [q(9, ' q1 ', ['B', 'A'])]);
+      expect(bank?.questions).toHaveLength(1);
+    });
+
+    it('returns null bank when no existing bank', () => {
+      const { bank, persisted } = appendToQuestionBank('missing', [q(1, 'Q')]);
+      expect(bank).toBeNull();
+      expect(persisted).toBe(false);
+    });
+  });
+});

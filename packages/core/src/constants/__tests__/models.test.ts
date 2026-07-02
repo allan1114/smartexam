@@ -3,7 +3,10 @@ import {
   isModelUnavailableError,
   isOverloadError,
   getFallbackModel,
+  getMaxOutputTokens,
+  AI_MODELS,
   DEFAULT_MODEL,
+  DEFAULT_MAX_OUTPUT_TOKENS,
 } from '../models';
 
 describe('models error classification', () => {
@@ -48,6 +51,23 @@ describe('models error classification', () => {
 
     it('returns a different model than the overloaded default', () => {
       expect(getFallbackModel(DEFAULT_MODEL)).not.toBe(DEFAULT_MODEL);
+    });
+  });
+
+  describe('getMaxOutputTokens', () => {
+    it('every catalog model declares a positive output-token ceiling', () => {
+      for (const model of AI_MODELS) {
+        expect(model.maxOutputTokens).toBeGreaterThan(0);
+      }
+    });
+
+    it('known models return their catalog value', () => {
+      expect(getMaxOutputTokens('gemini-2.5-flash')).toBe(65536);
+      expect(getMaxOutputTokens('gemini-2.0-flash')).toBe(8192);
+    });
+
+    it('unknown model ids fall back to the conservative default', () => {
+      expect(getMaxOutputTokens('someone-elses-model')).toBe(DEFAULT_MAX_OUTPUT_TOKENS);
     });
   });
 });
