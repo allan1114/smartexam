@@ -4,6 +4,7 @@ import {
   generateUniqueId,
   shuffleArray,
   cleanJsonResponse,
+  cleanJsonResponseDetailed,
   fileToBase64,
   readFileAsText,
 } from '../fileProcessor';
@@ -148,6 +149,30 @@ describe('fileProcessor utilities', () => {
       expect(parsed.caseType).toBe('B');
       expect(parsed.questions.length).toBe(2); // last complete element kept
       expect(parsed.questions[1].id).toBe(2);
+    });
+  });
+
+  describe('cleanJsonResponseDetailed', () => {
+    it('flags a repaired truncated response as wasTruncated', () => {
+      const truncated =
+        '{"caseType":"B","questions":[{"id":1,"question":"Q1"},{"id":2,"question":"Q2"},{"id":3,"question":"Q3 incomp';
+      const { json, wasTruncated } = cleanJsonResponseDetailed(truncated);
+      expect(wasTruncated).toBe(true);
+      expect(JSON.parse(json).questions.length).toBe(2);
+    });
+
+    it('does not flag valid JSON', () => {
+      const valid = '{"caseType":"A","questions":[]}';
+      const { json, wasTruncated } = cleanJsonResponseDetailed(valid);
+      expect(wasTruncated).toBe(false);
+      expect(json).toBe(valid);
+    });
+
+    it('does not flag markdown-wrapped valid JSON', () => {
+      const wrapped = '```json\n{"key":"value"}\n```';
+      const { json, wasTruncated } = cleanJsonResponseDetailed(wrapped);
+      expect(wasTruncated).toBe(false);
+      expect(JSON.parse(json).key).toBe('value');
     });
   });
 

@@ -265,8 +265,20 @@ const repairTruncatedJson = (s: string): string => {
   return prefix + closers;
 };
 
-export const cleanJsonResponse = (text: string): string => {
-  if (!text) return '';
+export interface CleanJsonResult {
+  json: string;
+  /**
+   * True when the structural repair path had to salvage a truncated response —
+   * i.e. the model's output was cut off (usually by the output-token limit) and
+   * everything after the last complete array element was discarded. Callers use
+   * this to trigger continuation extraction instead of silently accepting a
+   * partial result.
+   */
+  wasTruncated: boolean;
+}
+
+export const cleanJsonResponseDetailed = (text: string): CleanJsonResult => {
+  if (!text) return { json: '', wasTruncated: false };
 
   // Remove markdown code blocks if present
   let cleaned = text
@@ -283,19 +295,22 @@ export const cleanJsonResponse = (text: string): string => {
   // Fast path: already valid JSON → return unchanged (keeps behavior stable).
   try {
     JSON.parse(cleaned);
-    return cleaned;
+    return { json: cleaned, wasTruncated: false };
   } catch {
     // Truncated response? Attempt a structural repair; only use it if it parses.
     try {
       const repaired = repairTruncatedJson(cleaned);
       if (repaired !== cleaned) {
         JSON.parse(repaired);
-        return repaired;
+        return { json: repaired, wasTruncated: true };
       }
     } catch {
       /* fall through — return cleaned as before */
     }
   }
 
-  return cleaned;
+  return { json: cleaned, wasTruncated: false };
 };
+
+export const cleanJsonResponse = (text: string): string =>
+  cleanJsonResponseDetailed(text).json;

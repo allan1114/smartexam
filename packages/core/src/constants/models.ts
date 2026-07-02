@@ -4,6 +4,8 @@ export interface ModelConfig {
   description: string;
   provider: 'google';
   category: 'fast' | 'balanced' | 'advanced';
+  /** Max output tokens a single generateContent response may carry. */
+  maxOutputTokens: number;
 }
 
 /**
@@ -11,16 +13,16 @@ export interface ModelConfig {
  * Mirrors the "Text-out models" list shown in Google AI Studio.
  */
 export const AI_MODELS: ModelConfig[] = [
-  { id: 'gemini-3.5-flash',      name: 'Gemini 3.5 Flash',      description: 'Newest fast model',           provider: 'google', category: 'fast' },
-  { id: 'gemini-3.1-pro',        name: 'Gemini 3.1 Pro',        description: 'Latest advanced reasoning',   provider: 'google', category: 'advanced' },
-  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', description: 'Lightweight & quick',         provider: 'google', category: 'fast' },
-  { id: 'gemini-3-flash',        name: 'Gemini 3 Flash',        description: 'Popular flash model',         provider: 'google', category: 'fast' },
-  { id: 'gemini-2.5-pro',        name: 'Gemini 2.5 Pro',        description: 'GA, most capable 2.5',        provider: 'google', category: 'advanced' },
-  { id: 'gemini-2.5-flash',      name: 'Gemini 2.5 Flash',      description: 'GA, stable & balanced',       provider: 'google', category: 'balanced' },
-  { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', description: 'Lightweight 2.5',             provider: 'google', category: 'fast' },
-  { id: 'gemini-2.0-flash',      name: 'Gemini 2.0 Flash',      description: 'Reliable older flash',        provider: 'google', category: 'balanced' },
-  { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', description: 'Cheapest 2.0',                provider: 'google', category: 'fast' },
-  { id: 'gemma-4-31b-it',        name: 'Gemma 4 31B',           description: 'Open-weight backup',          provider: 'google', category: 'balanced' },
+  { id: 'gemini-3.5-flash',      name: 'Gemini 3.5 Flash',      description: 'Newest fast model',           provider: 'google', category: 'fast',     maxOutputTokens: 65536 },
+  { id: 'gemini-3.1-pro',        name: 'Gemini 3.1 Pro',        description: 'Latest advanced reasoning',   provider: 'google', category: 'advanced', maxOutputTokens: 65536 },
+  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', description: 'Lightweight & quick',         provider: 'google', category: 'fast',     maxOutputTokens: 65536 },
+  { id: 'gemini-3-flash',        name: 'Gemini 3 Flash',        description: 'Popular flash model',         provider: 'google', category: 'fast',     maxOutputTokens: 65536 },
+  { id: 'gemini-2.5-pro',        name: 'Gemini 2.5 Pro',        description: 'GA, most capable 2.5',        provider: 'google', category: 'advanced', maxOutputTokens: 65536 },
+  { id: 'gemini-2.5-flash',      name: 'Gemini 2.5 Flash',      description: 'GA, stable & balanced',       provider: 'google', category: 'balanced', maxOutputTokens: 65536 },
+  { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', description: 'Lightweight 2.5',             provider: 'google', category: 'fast',     maxOutputTokens: 65536 },
+  { id: 'gemini-2.0-flash',      name: 'Gemini 2.0 Flash',      description: 'Reliable older flash',        provider: 'google', category: 'balanced', maxOutputTokens: 8192 },
+  { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', description: 'Cheapest 2.0',                provider: 'google', category: 'fast',     maxOutputTokens: 8192 },
+  { id: 'gemma-4-31b-it',        name: 'Gemma 4 31B',           description: 'Open-weight backup',          provider: 'google', category: 'balanced', maxOutputTokens: 8192 },
 ];
 
 export const ALLOWED_MODEL_IDS: ReadonlyArray<string> = AI_MODELS.map(m => m.id);
@@ -36,6 +38,18 @@ export const RECOMMENDED_MODELS = [
 
 export const getModelConfig = (modelId: string): ModelConfig | undefined =>
   AI_MODELS.find(model => model.id === modelId);
+
+/** Conservative ceiling for user-typed / unknown model ids. */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+
+/**
+ * Output-token ceiling to request for a model. Requesting the model's true max
+ * lets a large CASE A extraction carry as many questions per response as the
+ * model allows (the previous omission left Gemini's small default cap in
+ * charge, silently truncating big question banks).
+ */
+export const getMaxOutputTokens = (modelId: string): number =>
+  getModelConfig(modelId)?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
 
 /**
  * Map a model ID to a stable fallback when the primary returns 429 / overloaded

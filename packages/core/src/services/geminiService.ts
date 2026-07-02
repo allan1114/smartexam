@@ -1,10 +1,11 @@
 
 import { Type, GenerateContentResponse } from "@google/genai";
 import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis, CaseType } from "../types";
-import { cleanJsonResponse, normalizeGeneratedQuestion } from "../utils/fileProcessor";
+import { cleanJsonResponse, cleanJsonResponseDetailed, normalizeGeneratedQuestion } from "../utils/fileProcessor";
+import { questionDedupKey } from "../utils/questionBank";
 import { ApiError, isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
-import { DEFAULT_MODEL, getFallbackModel, isOverloadError, isModelUnavailableError } from "../constants/models";
+import { DEFAULT_MODEL, getFallbackModel, getMaxOutputTokens, isOverloadError, isModelUnavailableError } from "../constants/models";
 
 const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GEMINI_FILES_UPLOAD_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
@@ -33,6 +34,16 @@ export const PROXY_MAX_BASE64_LEN = 4 * 1024 * 1024;
 
 const extractText = (data: any): string =>
   data?.candidates?.[0]?.content?.parts?.[0]?.text ?? data?.text ?? '';
+
+/**
+ * Pull the finish reason out of a Gemini response. 'MAX_TOKENS' means the model
+ * hit the output-token ceiling mid-response — the signal that extraction needs
+ * a continuation round. In proxy mode this is only present when the deployed
+ * proxy forwards it (older proxies return just { text }); the truncated-JSON
+ * repair flag remains the primary, mode-independent detector.
+ */
+const extractFinishReason = (data: any): string | undefined =>
+  data?.candidates?.[0]?.finishReason ?? data?.finishReason ?? undefined;
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
@@ -208,7 +219,7 @@ export const buildMinimaxMessages = (
  * API key are read from their own localStorage keys, completely separate from
  * the Google/Gemini settings.
  */
-const callMinimax = async (contents: any, config?: any): Promise<{ text: string }> => {
+const callMinimax = async (contents: any, config?: any): Promise<{ text: string; finishReason?: string }> => {
   const url =
     localStorage.getItem('smart_exam_minimax_url') || 'https://api.minimax.io/v1/chat/completions';
   const apiKey = localStorage.getItem('smart_exam_minimax_api_key') || '';
@@ -261,7 +272,12 @@ const callMinimax = async (contents: any, config?: any): Promise<{ text: string 
     }
   }
   const text = data?.choices?.[0]?.message?.content ?? '';
-  return { text: typeof text === 'string' ? text : String(text ?? '') };
+  return {
+    text: typeof text === 'string' ? text : String(text ?? ''),
+    // Normalize the OpenAI-style 'length' stop reason onto Gemini's MAX_TOKENS
+    // so truncation detection is provider-agnostic.
+    finishReason: data?.choices?.[0]?.finish_reason === 'length' ? 'MAX_TOKENS' : undefined,
+  };
 };
 
 /**
@@ -298,7 +314,7 @@ const callGeminiViaProxy = async (
   model: string,
   contents: any,
   config?: any
-): Promise<{ text: string }> => {
+): Promise<{ text: string; finishReason?: string }> => {
   // MiniMax is a separate provider with its own endpoint/key — route early so the
   // Google/Gemini path below (and its settings) stays completely untouched.
   if (getProvider() === 'minimax') {
@@ -348,7 +364,8 @@ const callGeminiViaProxy = async (
       throw new Error(err.error?.message || `Gemini API Error: ${resp.status} ${resp.statusText}`);
     }
 
-    return { text: extractText(await resp.json()) };
+    const data = await resp.json();
+    return { text: extractText(data), finishReason: extractFinishReason(data) };
   }
 
   // Proxy mode: strip the client-only timeoutMs so it never leaks into the
@@ -365,7 +382,8 @@ const callGeminiViaProxy = async (
     throw new Error(err.message || `API Error: ${resp.statusText}`);
   }
 
-  return { text: extractText(await resp.json()) };
+  const data = await resp.json();
+  return { text: extractText(data), finishReason: extractFinishReason(data) };
 };
 
 /**
@@ -452,20 +470,62 @@ const fetchWithRetry = async <T>(fn: () => Promise<T>, maxRetries = 3, initialDe
  * Settings; raising it gives the model more freedom (NOT recommended for
  * CASE A exam files where wording must be preserved).
  */
+export interface ExtractionProgress {
+  /** Unique questions accumulated so far. */
+  extracted: number;
+  /** 1-based extraction round (round 1 is the initial call). */
+  round: number;
+}
+
+/** How many continuation rounds may follow the initial extraction call. */
+const MAX_CONTINUATION_ROUNDS = 7;
+
 export const extractQuestionBank = async (
   source: DocumentSource,
   targetPoolSize: number = 30,
   modelName: string = DEFAULT_MODEL,
   answerFormat: AnswerFormat = 'AUTO',
   contentRange?: string,
-  temperature: number = 0.3
-): Promise<{ questions: Question[]; caseType: CaseType }> => {
+  temperature: number = 0.3,
+  onProgress?: (progress: ExtractionProgress) => void
+): Promise<{ questions: Question[]; caseType: CaseType; extractionComplete: boolean }> => {
   const finalModelName = getModelName(modelName);
 
   const rangeText = contentRange ? ` ONLY focus on the following section: "${contentRange}".` : ' Scan the ENTIRE document length to extract questions covering all sections.';
 
+  // Long pasted/text documents are sent through a sliding window: round 1 sees
+  // the first 100k chars, and continuation rounds recenter the window on the
+  // last extracted question so content past 100k is reachable (it previously
+  // was silently dropped). File sources (inlineData / Files API URI) always
+  // carry the whole document, so the window machinery is inert for them.
   const MAX_TEXT_LENGTH = 100000;
-  const textContext = source.text ? (source.text.length > MAX_TEXT_LENGTH ? source.text.substring(0, MAX_TEXT_LENGTH) + "... [Truncated]" : source.text) : "";
+  const fullText = source.text ?? '';
+  let windowStart = 0;
+
+  const currentTextContext = (): string => {
+    if (!fullText) return '';
+    const windowEnd = windowStart + MAX_TEXT_LENGTH;
+    const prefix = windowStart > 0 ? '[... earlier content omitted — already processed ...]\n' : '';
+    const suffix = windowEnd < fullText.length ? '\n... [Truncated]' : '';
+    return prefix + fullText.substring(windowStart, windowEnd) + suffix;
+  };
+  const hasMoreText = (): boolean => !!fullText && windowStart + MAX_TEXT_LENGTH < fullText.length;
+  /** Recenter the window just before the anchor question so the model can locate it and read past it. */
+  const advanceTextWindow = (anchor?: Question): void => {
+    if (!fullText) return;
+    for (const len of [80, 40]) {
+      const snippet = anchor?.question.substring(0, len);
+      if (snippet && snippet.length >= 20) {
+        const pos = fullText.indexOf(snippet, windowStart);
+        if (pos >= 0) {
+          windowStart = Math.max(0, pos - 2000);
+          return;
+        }
+      }
+    }
+    // Anchor not found verbatim — advance sequentially with a small overlap.
+    windowStart = windowStart + MAX_TEXT_LENGTH - 5000;
+  };
 
   // Reassignable so a parse failure (often caused by an over-large, truncated
   // response) can transparently retry with a smaller CASE-B pool target.
@@ -496,12 +556,34 @@ export const extractQuestionBank = async (
   // ingest + generate a bank — give it a generous per-call deadline. "heavy"
   // requests also skip the inner network-retry loop so a timeout doesn't get
   // multiplied into many doomed attempts (the old cause of the 6-minute hang).
-  const isHeavy = fileParts.length > 0 || textContext.length > 40000;
+  const isHeavy = fileParts.length > 0 || fullText.length > 40000;
   const requestTimeoutMs = fileParts.length > 0
     ? FILE_REQUEST_TIMEOUT_MS
-    : (textContext.length > 40000 ? LARGE_TEXT_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+    : (fullText.length > 40000 ? LARGE_TEXT_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
 
-  const apiCall = async (modelOverride: string) => {
+  /** State handed to a continuation round so the model resumes instead of restarting. */
+  interface Continuation {
+    extractedCount: number;
+    anchor: Question;
+  }
+
+  const buildContinuationBlock = (c: Continuation): string => `
+
+        ============================================================
+        CONTINUATION — THIS IS A LATER ROUND OF A MULTI-PART EXTRACTION
+        ============================================================
+        You have ALREADY extracted ${c.extractedCount} questions from this document in previous rounds.
+        The LAST question already extracted is (verbatim):
+        "${c.anchor.question.substring(0, 300)}"
+        with options: ${c.anchor.options.slice(0, 5).map(o => `"${o.substring(0, 80)}"`).join(', ')}
+        ▸ Locate this exact question in the document, then CONTINUE extracting from the question that appears IMMEDIATELY AFTER it.
+        ▸ Do NOT re-emit that question or ANY question that appears before it in the document.
+        ▸ Number the new questions starting at id ${c.extractedCount + 1}.
+        ▸ Keep 'caseType' identical to the previous rounds ('A').
+        All other extraction rules above still apply.`;
+
+  const apiCall = async (modelOverride: string, continuation?: Continuation) => {
+    const textContext = currentTextContext();
     return await callGeminiViaProxy(
       modelOverride,
       {
@@ -564,9 +646,13 @@ export const extractQuestionBank = async (
           - 'caseType': either 'A' or 'B'
           - 'questions': the list of questions
         Each question must have: id, question, type, options, correctAnswer, explanation, sourceQuote, topic — plus 'correctAnswers' for 'multiple', 'pairs' for 'matching', and 'blanks' for 'dropdown'.
-        The 'correctAnswer' string MUST match one of the 'options' strings exactly (character-for-character).`,
+        The 'correctAnswer' string MUST match one of the 'options' strings exactly (character-for-character).${continuation ? buildContinuationBlock(continuation) : ''}`,
         responseMimeType: "application/json",
         temperature,
+        // Request the model's full output ceiling so a big CASE A bank carries
+        // as many questions per response as the model allows. Google only —
+        // MiniMax keeps its own default (its model ids aren't in our catalog).
+        ...(getProvider() === 'google' && { maxOutputTokens: getMaxOutputTokens(modelOverride) }),
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -620,17 +706,19 @@ export const extractQuestionBank = async (
     );
   };
 
-  const runOnce = async (): Promise<{ questions: Question[]; caseType: CaseType }> => {
+  const runRound = async (
+    continuation?: Continuation
+  ): Promise<{ questions: Question[]; caseType: CaseType; wasTruncated: boolean }> => {
     // Heavy (file/large-doc) calls already use a long deadline; don't let the
     // inner retry loop multiply a slow request into several doomed attempts.
     // Transient overload is still handled by callWithFallback (model fallback)
     // and the outer reduced-pool retry below.
     const maxRetries = isHeavy ? 0 : 3;
-    const response = await callWithFallback(finalModelName, (m) => fetchWithRetry(() => apiCall(m), maxRetries));
+    const response = await callWithFallback(finalModelName, (m) => fetchWithRetry(() => apiCall(m, continuation), maxRetries));
     const rawText = response.text;
     if (!rawText) throw new Error("EMPTY_RESPONSE: AI returned an empty result.");
 
-    const jsonStr = cleanJsonResponse(rawText);
+    const { json: jsonStr, wasTruncated: wasRepaired } = cleanJsonResponseDetailed(rawText);
     let parsed: unknown;
     try {
       parsed = JSON.parse(jsonStr);
@@ -657,16 +745,19 @@ export const extractQuestionBank = async (
       .map((q: unknown, idx: number) => normalizeGeneratedQuestion(q, idx))
       .filter((q): q is Question => q !== null);
 
-    return { questions: cleaned, caseType };
+    return {
+      questions: cleaned,
+      caseType,
+      wasTruncated: wasRepaired || response.finishReason === 'MAX_TOKENS',
+    };
   };
 
   try {
+    // ---- Round 1 (with the pre-existing reduced-pool recovery) ----
+    let first: { questions: Question[]; caseType: CaseType; wasTruncated: boolean };
     try {
-      return await runOnce();
+      first = await runRound();
     } catch (firstErr: unknown) {
-      // A truncated/over-large response shows up as PARSING_ERROR or EMPTY_RESPONSE.
-      // Auto-retry ONCE with a smaller CASE-B pool target before giving up — this
-      // is what the old error message asked the user to do by hand.
       // A truncated/over-large response → PARSING_ERROR or EMPTY_RESPONSE. A
       // request that ran out of time → NETWORK_TIMEOUT; a smaller pool generates
       // less output and is more likely to finish within the deadline, so retry
@@ -681,10 +772,85 @@ export const extractQuestionBank = async (
           'geminiService.extractQuestionBank'
         );
         effectivePoolSize = reduced;
-        return await runOnce();
+        first = await runRound();
+      } else {
+        throw firstErr;
       }
-      throw firstErr;
     }
+
+    // ---- Merge state shared across rounds ----
+    const merged: Question[] = [];
+    const seen = new Set<string>();
+    const addRound = (qs: Question[]): number => {
+      let added = 0;
+      for (const q of qs) {
+        const key = questionDedupKey(q);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(q);
+        added++;
+      }
+      return added;
+    };
+
+    addRound(first.questions);
+    const caseType = first.caseType;
+    let wasTruncated = first.wasTruncated;
+    // Anchor = the last question of the LATEST round in document order (not of
+    // the merged pool) — that's where the model stopped reading.
+    let anchor: Question | undefined = first.questions[first.questions.length - 1];
+    let round = 1;
+    onProgress?.({ extracted: merged.length, round });
+
+    // ---- Continuation rounds (CASE A only) ----
+    // A truncated response means the document holds more questions than one
+    // response can carry; an un-truncated response with remaining text window
+    // means a long text source hasn't been fully scanned yet. Either way, keep
+    // going — anchored on the last extracted question — until done or capped.
+    while (
+      caseType === 'A' &&
+      anchor &&
+      (wasTruncated || hasMoreText()) &&
+      round <= MAX_CONTINUATION_ROUNDS
+    ) {
+      advanceTextWindow(anchor);
+      let result: { questions: Question[]; caseType: CaseType; wasTruncated: boolean };
+      try {
+        result = await runRound({ extractedCount: merged.length, anchor });
+      } catch (roundErr: unknown) {
+        // A failed continuation round must not throw away what we already have.
+        logger.warn(
+          `Continuation round ${round + 1} failed (${roundErr instanceof Error ? roundErr.message.substring(0, 100) : String(roundErr)}) — keeping ${merged.length} questions.`,
+          'geminiService.extractQuestionBank'
+        );
+        break;
+      }
+      const netNew = addRound(result.questions);
+      if (result.questions.length > 0) anchor = result.questions[result.questions.length - 1];
+      wasTruncated = result.wasTruncated;
+      round++;
+      onProgress?.({ extracted: merged.length, round });
+      if (netNew === 0) {
+        // The model re-emitted only known questions — either the document is
+        // exhausted or the anchor was ignored. Stop rather than loop.
+        logger.warn(`Continuation round ${round} added no new questions — stopping.`, 'geminiService.extractQuestionBank');
+        break;
+      }
+    }
+
+    const extractionComplete = caseType !== 'A' || (!wasTruncated && !hasMoreText());
+    if (!extractionComplete) {
+      logger.warn(
+        `Extraction stopped incomplete after ${round} round(s) with ${merged.length} questions (truncated=${wasTruncated}, moreText=${hasMoreText()}).`,
+        'geminiService.extractQuestionBank'
+      );
+    }
+
+    return {
+      questions: merged.map((q, idx) => ({ ...q, id: idx + 1 })),
+      caseType,
+      extractionComplete,
+    };
   } catch (error: unknown) {
     const errorObj = error instanceof Error ? error : new Error(String(error));
     logger.error("Failed to extract question bank", 'geminiService.extractQuestionBank', errorObj);
