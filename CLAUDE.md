@@ -170,8 +170,11 @@ the base64 bytes — to avoid blowing the localStorage quota.
   because of GitHub Pages project-site hosting. Keep this in mind for asset URLs.
 - **GitHub Pages** deploys automatically on push to `main`/`master` via
   `.github/workflows/deploy-github-pages.yml`: it builds web, writes `404.html`
-  + `.nojekyll` (SPA routing), deploys the Pages artifact, and mirrors the build
-  to the `gh-pages` branch. Live at https://allan1114.github.io/smartexam/.
+  + `.nojekyll` (SPA routing), and deploys the Pages artifact
+  (`actions/deploy-pages`). Pages source is "GitHub Actions" — do NOT add a
+  `gh-pages` branch mirror; a second deployment path races the artifact deploy
+  and fails with "in progress deployment". Live at
+  https://allan1114.github.io/smartexam/.
 - **Vercel** uses `vercel.json` (framework `vite`, security headers, `GEMINI_API_KEY`
   env) and serves `api/proxy-gemini.ts` as the proxy.
 
