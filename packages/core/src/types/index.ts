@@ -82,12 +82,17 @@ export interface QuestionBank {
   createdAt: number;
   modelUsed: string;
   /**
-   * True when extraction ran to a clean finish (no truncation / round cap hit).
-   * Absent on banks built before continuation extraction existed — those CASE A
-   * banks are treated as suspect and rebuilt once (they were frozen at whatever
-   * the old single-call output limit allowed).
+   * True when extraction ran to a clean finish (no truncation / round cap hit,
+   * and the model-reported document total was reached).
    */
   extractionComplete?: boolean;
+  /**
+   * Version of the extraction pipeline that built this bank (see
+   * CURRENT_EXTRACTOR_VERSION in utils/questionBank.ts). CASE A banks built by
+   * an older extractor are rebuilt once on next use — older pipelines silently
+   * froze large documents at a fraction of their questions.
+   */
+  extractorVersion?: number;
 }
 
 export interface UserAnswer {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppState, ExamConfig, Question, ExamResult, UserAnswer, DocumentSource } from './types';
 import { extractQuestionBank } from './services/geminiService';
-import { loadQuestionBank, saveQuestionBank, sampleQuestionsFromBank, deleteQuestionBank, appendToQuestionBank } from './utils/questionBank';
+import { loadQuestionBank, saveQuestionBank, sampleQuestionsFromBank, deleteQuestionBank, appendToQuestionBank, CURRENT_EXTRACTOR_VERSION } from './utils/questionBank';
 import { generateUniqueId } from './utils/fileProcessor';
 import { saveDocument, listDocuments, loadDocument, deleteDocument, touchDocument, SavedDocument } from './utils/documentLibrary';
 import { logger } from './utils/logger';
@@ -155,12 +155,14 @@ const App: React.FC = () => {
     setIsRetaking(false);
 
     const storageWarningMsg = '題庫太大，未能完整儲存到瀏覽器。本次考試不受影響，但下次可能需要重新抽題。';
-    const onExtractionProgress = ({ extracted, round }: { extracted: number; round: number }) =>
+    const onExtractionProgress = ({ extracted, round, total }: { extracted: number; round: number; total?: number }) => {
+      const count = total ? `${extracted}/${total}` : `${extracted}`;
       setLoadingProgress(
         round > 1
-          ? `已抽取 ${extracted} 題，繼續掃描文件中…（第 ${round} 輪）`
-          : `已抽取 ${extracted} 題…`
+          ? `已抽取 ${count} 題，繼續掃描文件中…（第 ${round} 輪）`
+          : `已抽取 ${count} 題…`
       );
+    };
 
     try {
       // Generate document hash for cache lookup (also used by sessionStorage layer)
@@ -173,14 +175,15 @@ const App: React.FC = () => {
       //    zero additional Gemini calls.
       let bank = loadQuestionBank(docHash);
 
-      // Banks built before continuation extraction have no extractionComplete
-      // flag: a CASE A bank from that era was silently frozen at whatever a
-      // single response could carry (~100 of a 500-question PDF). Rebuild it
-      // once so the full document becomes reachable; the flag stops this from
-      // ever repeating.
-      if (bank && bank.caseType === 'A' && bank.extractionComplete !== true) {
+      // CASE A banks built by an OLDER extractor pipeline are rebuilt once:
+      // older versions silently froze large documents at a fraction of their
+      // questions (output-cap truncation, then voluntary model early-stops).
+      // Version-based (not extractionComplete-based) so a bank the CURRENT
+      // pipeline honestly marked incomplete is NOT rebuilt on every exam —
+      // the user can still force one via 重新生成題庫.
+      if (bank && bank.caseType === 'A' && (bank.extractorVersion ?? 0) < CURRENT_EXTRACTOR_VERSION) {
         logger.info(
-          `CASE A bank for ${docHash} predates continuation extraction (${bank.questions.length} questions) — rebuilding in full.`,
+          `CASE A bank for ${docHash} was built by extractor v${bank.extractorVersion ?? 0} (${bank.questions.length} questions) — rebuilding with v${CURRENT_EXTRACTOR_VERSION}.`,
           'App.startExam'
         );
         deleteQuestionBank(docHash);
