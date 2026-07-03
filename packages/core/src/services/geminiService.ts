@@ -475,10 +475,18 @@ export interface ExtractionProgress {
   extracted: number;
   /** 1-based extraction round (round 1 is the initial call). */
   round: number;
+  /** Total questions the model reports the document contains (when known). */
+  total?: number;
 }
 
 /** How many continuation rounds may follow the initial extraction call. */
-const MAX_CONTINUATION_ROUNDS = 7;
+const MAX_CONTINUATION_ROUNDS = 11;
+
+/** Treat absurd model-reported document totals as unknown. */
+const sanitizeReportedTotal = (v: unknown): number | undefined => {
+  const n = typeof v === 'number' ? Math.floor(v) : NaN;
+  return Number.isFinite(n) && n > 0 && n <= 5000 ? n : undefined;
+};
 
 export const extractQuestionBank = async (
   source: DocumentSource,
@@ -565,22 +573,40 @@ export const extractQuestionBank = async (
   interface Continuation {
     extractedCount: number;
     anchor: Question;
+    /** Model-reported total questions in the document, when known. */
+    totalCount?: number;
+    /**
+     * Fallback positioning: instead of locating the anchor question by its
+     * text, instruct the model to skip the first N questions by ordinal. Used
+     * once when an anchor-based round returns nothing new (the model ignored
+     * the anchor or re-emitted from the top).
+     */
+    useOrdinal?: boolean;
   }
 
-  const buildContinuationBlock = (c: Continuation): string => `
+  const buildContinuationBlock = (c: Continuation): string => {
+    const totalLine = c.totalCount
+      ? `\n        The document contains approximately ${c.totalCount} questions in total; ${c.extractedCount} have been extracted so far — ${Math.max(0, c.totalCount - c.extractedCount)} remain. Keep extracting until ALL are covered.`
+      : '';
+    const positioning = c.useOrdinal
+      ? `        ▸ SKIP the FIRST ${c.extractedCount} questions of the document (in document order) WITHOUT re-emitting them, then extract question #${c.extractedCount + 1} onwards.`
+      : `        The LAST question already extracted is (verbatim):
+        "${c.anchor.question.substring(0, 300)}"
+        with options: ${c.anchor.options.slice(0, 5).map(o => `"${o.substring(0, 80)}"`).join(', ')}
+        ▸ Locate this exact question in the document, then CONTINUE extracting from the question that appears IMMEDIATELY AFTER it.
+        ▸ Do NOT re-emit that question or ANY question that appears before it in the document.`;
+    return `
 
         ============================================================
         CONTINUATION — THIS IS A LATER ROUND OF A MULTI-PART EXTRACTION
         ============================================================
-        You have ALREADY extracted ${c.extractedCount} questions from this document in previous rounds.
-        The LAST question already extracted is (verbatim):
-        "${c.anchor.question.substring(0, 300)}"
-        with options: ${c.anchor.options.slice(0, 5).map(o => `"${o.substring(0, 80)}"`).join(', ')}
-        ▸ Locate this exact question in the document, then CONTINUE extracting from the question that appears IMMEDIATELY AFTER it.
-        ▸ Do NOT re-emit that question or ANY question that appears before it in the document.
+        You have ALREADY extracted ${c.extractedCount} questions from this document in previous rounds.${totalLine}
+${positioning}
         ▸ Number the new questions starting at id ${c.extractedCount + 1}.
+        ▸ Emit AS MANY of the remaining questions as fit in this response — do NOT stop after a handful.
         ▸ Keep 'caseType' identical to the previous rounds ('A').
         All other extraction rules above still apply.`;
+  };
 
   const apiCall = async (modelOverride: string, continuation?: Continuation) => {
     const textContext = currentTextContext();
@@ -607,7 +633,9 @@ export const extractQuestionBank = async (
         STEP 2 — EXTRACT / GENERATE
         ============================================================
         If CASE A:
-        ▸ Extract EVERY SINGLE question present in the document. Do NOT impose a maximum count. If the document contains 50 questions, return 50. If 200, return 200.
+        ▸ FIRST, COUNT every question in the ENTIRE document (scan to the very end) and set 'totalQuestionCount' to that number — even if you cannot output them all in this response.
+        ▸ Extract EVERY SINGLE question present in the document. Do NOT impose a maximum count. If the document contains 50 questions, return 50. If 500, return 500.
+        ▸ If there are more questions than fit in one response, output as many complete questions as possible IN DOCUMENT ORDER and stop cleanly — you will be asked to CONTINUE in a follow-up request. NEVER skip, sample, or summarize questions to make them fit.
         ▸ You MUST copy the question text CHARACTER-FOR-CHARACTER. Do not paraphrase, reword, summarize, simplify, fix typos, translate, or "improve" anything.
         ▸ You MUST copy each option CHARACTER-FOR-CHARACTER. Preserve exact wording, punctuation, capitalization, numbers, units, and ordering.
         ▸ You MUST copy the correct answer EXACTLY as it appears in the document (look for an answer key, answer line, bolded option, or marked answer). If the document does not indicate the correct answer, choose the option whose text matches the document most accurately and put that EXACT option text in 'correctAnswer'.
@@ -644,6 +672,7 @@ export const extractQuestionBank = async (
         ============================================================
         Return a JSON object with keys:
           - 'caseType': either 'A' or 'B'
+          - 'totalQuestionCount': CASE A — the TOTAL number of questions in the whole document (from your count above, NOT just this response); CASE B — the number of questions you generated
           - 'questions': the list of questions
         Each question must have: id, question, type, options, correctAnswer, explanation, sourceQuote, topic — plus 'correctAnswers' for 'multiple', 'pairs' for 'matching', and 'blanks' for 'dropdown'.
         The 'correctAnswer' string MUST match one of the 'options' strings exactly (character-for-character).${continuation ? buildContinuationBlock(continuation) : ''}`,
@@ -657,6 +686,7 @@ export const extractQuestionBank = async (
           type: Type.OBJECT,
           properties: {
             caseType: { type: Type.STRING },
+            totalQuestionCount: { type: Type.INTEGER },
             questions: {
               type: Type.ARRAY,
               items: {
@@ -708,7 +738,7 @@ export const extractQuestionBank = async (
 
   const runRound = async (
     continuation?: Continuation
-  ): Promise<{ questions: Question[]; caseType: CaseType; wasTruncated: boolean }> => {
+  ): Promise<{ questions: Question[]; caseType: CaseType; wasTruncated: boolean; reportedTotal?: number }> => {
     // Heavy (file/large-doc) calls already use a long deadline; don't let the
     // inner retry loop multiply a slow request into several doomed attempts.
     // Transient overload is still handled by callWithFallback (model fallback)
@@ -749,12 +779,13 @@ export const extractQuestionBank = async (
       questions: cleaned,
       caseType,
       wasTruncated: wasRepaired || response.finishReason === 'MAX_TOKENS',
+      reportedTotal: sanitizeReportedTotal(parsedObj.totalQuestionCount),
     };
   };
 
   try {
     // ---- Round 1 (with the pre-existing reduced-pool recovery) ----
-    let first: { questions: Question[]; caseType: CaseType; wasTruncated: boolean };
+    let first: { questions: Question[]; caseType: CaseType; wasTruncated: boolean; reportedTotal?: number };
     try {
       first = await runRound();
     } catch (firstErr: unknown) {
@@ -796,27 +827,45 @@ export const extractQuestionBank = async (
     addRound(first.questions);
     const caseType = first.caseType;
     let wasTruncated = first.wasTruncated;
+    // The model's own count of questions in the whole document. This is what
+    // lets us catch VOLUNTARY early stops: a clean (non-truncated) response
+    // that still covers fewer questions than the document holds.
+    let reportedTotal = first.reportedTotal;
     // Anchor = the last question of the LATEST round in document order (not of
     // the merged pool) — that's where the model stopped reading.
     let anchor: Question | undefined = first.questions[first.questions.length - 1];
     let round = 1;
-    onProgress?.({ extracted: merged.length, round });
+    onProgress?.({ extracted: merged.length, round, total: reportedTotal });
+    logger.info(
+      `Extraction round 1: ${merged.length} questions (docTotal=${reportedTotal ?? '?'}, truncated=${wasTruncated})`,
+      'geminiService.extractQuestionBank'
+    );
 
     // ---- Continuation rounds (CASE A only) ----
-    // A truncated response means the document holds more questions than one
-    // response can carry; an un-truncated response with remaining text window
-    // means a long text source hasn't been fully scanned yet. Either way, keep
-    // going — anchored on the last extracted question — until done or capped.
+    // Keep going while ANY signal says the document has more to give:
+    //  - the response was cut off by the output-token limit, or
+    //  - a long text source still has unscanned window, or
+    //  - the model itself reported more questions than we've extracted
+    //    (catches the model stopping early with a clean finish).
+    const stillShortOfTotal = () =>
+      reportedTotal !== undefined && merged.length < reportedTotal;
+    let ordinalFallbackUsed = false;
+
     while (
       caseType === 'A' &&
       anchor &&
-      (wasTruncated || hasMoreText()) &&
+      (wasTruncated || hasMoreText() || stillShortOfTotal()) &&
       round <= MAX_CONTINUATION_ROUNDS
     ) {
       advanceTextWindow(anchor);
-      let result: { questions: Question[]; caseType: CaseType; wasTruncated: boolean };
+      let result: { questions: Question[]; caseType: CaseType; wasTruncated: boolean; reportedTotal?: number };
       try {
-        result = await runRound({ extractedCount: merged.length, anchor });
+        result = await runRound({
+          extractedCount: merged.length,
+          anchor,
+          totalCount: reportedTotal,
+          useOrdinal: ordinalFallbackUsed,
+        });
       } catch (roundErr: unknown) {
         // A failed continuation round must not throw away what we already have.
         logger.warn(
@@ -826,22 +875,45 @@ export const extractQuestionBank = async (
         break;
       }
       const netNew = addRound(result.questions);
-      if (result.questions.length > 0) anchor = result.questions[result.questions.length - 1];
-      wasTruncated = result.wasTruncated;
+      // Models sometimes re-report the total per round; keep the largest sane value.
+      if (result.reportedTotal !== undefined) {
+        reportedTotal = Math.max(reportedTotal ?? 0, result.reportedTotal);
+      }
       round++;
-      onProgress?.({ extracted: merged.length, round });
+      onProgress?.({ extracted: merged.length, round, total: reportedTotal });
+      logger.info(
+        `Extraction round ${round}: +${netNew} → ${merged.length}/${reportedTotal ?? '?'} (truncated=${result.wasTruncated})`,
+        'geminiService.extractQuestionBank'
+      );
+
       if (netNew === 0) {
-        // The model re-emitted only known questions — either the document is
-        // exhausted or the anchor was ignored. Stop rather than loop.
+        // Unproductive round: the model only re-emitted known questions, so
+        // its finish state says nothing about coverage — keep the previous
+        // truncation signals and do NOT move the anchor. Retry ONCE with
+        // ordinal positioning ("skip the first N questions") before giving up.
+        if (!ordinalFallbackUsed) {
+          ordinalFallbackUsed = true;
+          logger.warn(
+            `Continuation round ${round} added no new questions — retrying once with ordinal positioning.`,
+            'geminiService.extractQuestionBank'
+          );
+          continue;
+        }
         logger.warn(`Continuation round ${round} added no new questions — stopping.`, 'geminiService.extractQuestionBank');
         break;
       }
+
+      // Productive round: adopt its signals and re-anchor on its last question.
+      anchor = result.questions[result.questions.length - 1];
+      wasTruncated = result.wasTruncated;
+      ordinalFallbackUsed = false;
     }
 
-    const extractionComplete = caseType !== 'A' || (!wasTruncated && !hasMoreText());
+    const extractionComplete =
+      caseType !== 'A' || (!wasTruncated && !hasMoreText() && !stillShortOfTotal());
     if (!extractionComplete) {
       logger.warn(
-        `Extraction stopped incomplete after ${round} round(s) with ${merged.length} questions (truncated=${wasTruncated}, moreText=${hasMoreText()}).`,
+        `Extraction stopped incomplete after ${round} round(s) with ${merged.length}/${reportedTotal ?? '?'} questions (truncated=${wasTruncated}, moreText=${hasMoreText()}).`,
         'geminiService.extractQuestionBank'
       );
     }

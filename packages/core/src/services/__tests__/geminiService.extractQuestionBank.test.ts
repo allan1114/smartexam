@@ -29,9 +29,9 @@ const makeQuestions = ({ idStart, count }: FakeQuestionOpts) =>
 /** Build a Gemini REST response carrying a question bank, optionally cut off mid-array. */
 const makeBankResponse = (
   questions: unknown[],
-  { truncate = false, finishReason }: { truncate?: boolean; finishReason?: string } = {}
+  { truncate = false, finishReason, total }: { truncate?: boolean; finishReason?: string; total?: number } = {}
 ) => {
-  let json = JSON.stringify({ caseType: 'A', questions });
+  let json = JSON.stringify({ caseType: 'A', ...(total !== undefined && { totalQuestionCount: total }), questions });
   if (truncate) {
     // Cut inside the final array element so repairTruncatedJson must salvage.
     json = json.slice(0, json.length - 40);
@@ -135,17 +135,37 @@ describe('extractQuestionBank — continuation rounds', () => {
     expect(result.questions).toHaveLength(5); // 1..4 + new 5
   });
 
-  it('stops with extractionComplete=false when a continuation adds nothing while truncated', async () => {
+  it('retries once with ordinal positioning, then stops incomplete when still nothing new', async () => {
     const same = makeQuestions({ idStart: 1, count: 3 });
     fetchMock
+      .mockResolvedValueOnce(makeBankResponse(same, { finishReason: 'MAX_TOKENS' }))
       .mockResolvedValueOnce(makeBankResponse(same, { finishReason: 'MAX_TOKENS' }))
       .mockResolvedValueOnce(makeBankResponse(same, { finishReason: 'MAX_TOKENS' }));
 
     const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // round1 + anchor continuation (0 new) + ordinal fallback (0 new) → stop
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const fallbackBody = getRequestBody(fetchMock, 2);
+    expect(fallbackBody.systemInstruction.parts[0].text).toContain('SKIP the FIRST 3 questions');
     expect(result.questions).toHaveLength(3);
     expect(result.extractionComplete).toBe(false);
+  });
+
+  it('ordinal fallback recovers questions when the anchor is ignored', async () => {
+    const round1 = makeQuestions({ idStart: 1, count: 3 });
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(round1, { finishReason: 'MAX_TOKENS' }))
+      // Anchor-based continuation re-emits only known questions…
+      .mockResolvedValueOnce(makeBankResponse(round1))
+      // …but the ordinal retry finds the rest.
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 4, count: 2 })));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.questions).toHaveLength(5);
+    expect(result.extractionComplete).toBe(true);
   });
 
   it('caps continuation rounds at the safety limit', async () => {
@@ -161,10 +181,55 @@ describe('extractQuestionBank — continuation rounds', () => {
 
     const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
 
-    // 1 initial + 7 continuation rounds
-    expect(fetchMock).toHaveBeenCalledTimes(8);
-    expect(result.questions).toHaveLength(16);
+    // 1 initial + 11 continuation rounds
+    expect(fetchMock).toHaveBeenCalledTimes(12);
+    expect(result.questions).toHaveLength(24);
     expect(result.extractionComplete).toBe(false);
+  });
+
+  it('continues after a CLEAN finish while short of the model-reported total', async () => {
+    // Model voluntarily stops early each round (finishReason STOP, valid JSON)
+    // but honestly reports the document holds 12 questions.
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 5 }), { total: 12 }))
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 6, count: 5 }), { total: 12 }))
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 11, count: 2 }), { total: 12 }));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.questions).toHaveLength(12);
+    expect(result.extractionComplete).toBe(true);
+    // Continuation prompt should carry the remaining-count guidance.
+    const contBody = getRequestBody(fetchMock, 1);
+    expect(contBody.systemInstruction.parts[0].text).toContain('approximately 12 questions');
+  });
+
+  it('marks extraction incomplete when the round cap is hit short of the reported total', async () => {
+    // Clean finishes, huge reported total, tiny yield per round.
+    let start = 1;
+    fetchMock.mockImplementation(async () => {
+      const resp = makeBankResponse(makeQuestions({ idStart: start, count: 1 }), { total: 100 });
+      start += 1;
+      return resp;
+    });
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    expect(fetchMock).toHaveBeenCalledTimes(12); // 1 + 11 cap
+    expect(result.questions).toHaveLength(12);
+    expect(result.extractionComplete).toBe(false);
+  });
+
+  it('ignores absurd reported totals', async () => {
+    fetchMock.mockResolvedValueOnce(
+      makeBankResponse(makeQuestions({ idStart: 1, count: 3 }), { total: 999999 })
+    );
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1); // sanitized away → treated complete
+    expect(result.extractionComplete).toBe(true);
   });
 
   it('CASE B never continues even when truncated', async () => {

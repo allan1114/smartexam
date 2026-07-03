@@ -3,6 +3,14 @@ import { logger } from './logger';
 
 const BANK_KEY_PREFIX = 'smart_exam_bank_';
 const BANK_INDEX_KEY = 'smart_exam_bank_index';
+/**
+ * Version of the extraction pipeline. Bump when extraction quality improves
+ * enough that previously cached CASE A banks should be rebuilt once:
+ *  1 — continuation extraction on truncation (PR #31)
+ *  2 — model-reported document total drives continuation, so voluntary early
+ *      stops (clean finish with only part of the document) are caught too
+ */
+export const CURRENT_EXTRACTOR_VERSION = 2;
 // Full CASE A banks can reach ~0.5-1MB each (e.g. a 500-question PDF); 5 banks
 // keeps the worst case around the common 5MB localStorage quota alongside the
 // document library and exam history.
@@ -92,6 +100,7 @@ export const saveQuestionBank = (params: {
     createdAt: Date.now(),
     modelUsed: params.modelUsed,
     extractionComplete: params.extractionComplete,
+    extractorVersion: CURRENT_EXTRACTOR_VERSION,
   };
 
   const persisted = persistBank(bank, 'questionBank.saveQuestionBank');

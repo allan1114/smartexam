@@ -5,6 +5,7 @@ import {
   loadQuestionBank,
   appendToQuestionBank,
   questionDedupKey,
+  CURRENT_EXTRACTOR_VERSION,
 } from '../questionBank';
 import { Question } from '../../types';
 
@@ -52,8 +53,10 @@ describe('questionBank', () => {
       });
       expect(persisted).toBe(true);
       expect(bank.extractionComplete).toBe(true);
+      expect(bank.extractorVersion).toBe(CURRENT_EXTRACTOR_VERSION);
       expect(loadQuestionBank('h1')?.questions).toHaveLength(1);
       expect(loadQuestionBank('h1')?.extractionComplete).toBe(true);
+      expect(loadQuestionBank('h1')?.extractorVersion).toBe(CURRENT_EXTRACTOR_VERSION);
     });
 
     it('reports persisted=false when localStorage keeps failing', () => {
