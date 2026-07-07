@@ -67,19 +67,56 @@ describe('extractQuestionBank — continuation rounds', () => {
     vi.unstubAllGlobals();
   });
 
-  it('single un-truncated CASE A round completes in one call', async () => {
-    fetchMock.mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 5 })));
+  it('clean CASE A round is verified by a probe the model confirms empty', async () => {
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 5 })))
+      // Verification probe: the model confirms nothing remains after the anchor.
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const probeText = getRequestBody(fetchMock, 1).systemInstruction.parts[0].text as string;
+    expect(probeText).toContain('CONTINUATION');
+    expect(probeText).toContain("return an EMPTY 'questions' array");
     expect(result.questions).toHaveLength(5);
     expect(result.caseType).toBe('A');
     expect(result.extractionComplete).toBe(true);
   });
 
+  it('probes past a clean finish even when the reported total matches what was emitted (lowballed totals)', async () => {
+    // The historical 500-question failure: the model stops after a fraction of
+    // the document with a clean STOP and reports a total equal to what it
+    // emitted, so neither truncation nor short-of-total fires.
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 5 }), { total: 5 }))
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 6, count: 5 }), { total: 10 }))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.questions).toHaveLength(10);
+    expect(result.extractionComplete).toBe(true);
+  });
+
+  it('probes past a clean finish when the model omits the total entirely', async () => {
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 5 })))
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 6, count: 3 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.questions).toHaveLength(8);
+    expect(result.extractionComplete).toBe(true);
+  });
+
   it('sets maxOutputTokens in generationConfig', async () => {
-    fetchMock.mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 3 })));
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 3 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
 
@@ -91,11 +128,12 @@ describe('extractQuestionBank — continuation rounds', () => {
     const round1 = makeQuestions({ idStart: 1, count: 4 });
     fetchMock
       .mockResolvedValueOnce(makeBankResponse(round1, { truncate: true }))
-      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 4, count: 3 })));
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 4, count: 3 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     const contBody = getRequestBody(fetchMock, 1);
     const sysText = contBody.systemInstruction.parts[0].text as string;
     expect(sysText).toContain('CONTINUATION');
@@ -113,11 +151,12 @@ describe('extractQuestionBank — continuation rounds', () => {
       .mockResolvedValueOnce(
         makeBankResponse(makeQuestions({ idStart: 1, count: 3 }), { finishReason: 'MAX_TOKENS' })
       )
-      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 4, count: 2 })));
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 4, count: 2 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(result.questions).toHaveLength(5);
     expect(result.extractionComplete).toBe(true);
   });
@@ -128,7 +167,8 @@ describe('extractQuestionBank — continuation rounds', () => {
     const round2 = makeQuestions({ idStart: 3, count: 3 });
     fetchMock
       .mockResolvedValueOnce(makeBankResponse(round1, { finishReason: 'MAX_TOKENS' }))
-      .mockResolvedValueOnce(makeBankResponse(round2));
+      .mockResolvedValueOnce(makeBankResponse(round2))
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
 
@@ -159,11 +199,12 @@ describe('extractQuestionBank — continuation rounds', () => {
       // Anchor-based continuation re-emits only known questions…
       .mockResolvedValueOnce(makeBankResponse(round1))
       // …but the ordinal retry finds the rest.
-      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 4, count: 2 })));
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 4, count: 2 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(result.questions).toHaveLength(5);
     expect(result.extractionComplete).toBe(true);
   });
@@ -193,11 +234,12 @@ describe('extractQuestionBank — continuation rounds', () => {
     fetchMock
       .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 5 }), { total: 12 }))
       .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 6, count: 5 }), { total: 12 }))
-      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 11, count: 2 }), { total: 12 }));
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 11, count: 2 }), { total: 12 }))
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(result.questions).toHaveLength(12);
     expect(result.extractionComplete).toBe(true);
     // Continuation prompt should carry the remaining-count guidance.
@@ -222,13 +264,16 @@ describe('extractQuestionBank — continuation rounds', () => {
   });
 
   it('ignores absurd reported totals', async () => {
-    fetchMock.mockResolvedValueOnce(
-      makeBankResponse(makeQuestions({ idStart: 1, count: 3 }), { total: 999999 })
-    );
+    fetchMock
+      .mockResolvedValueOnce(
+        makeBankResponse(makeQuestions({ idStart: 1, count: 3 }), { total: 999999 })
+      )
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
 
-    expect(fetchMock).toHaveBeenCalledTimes(1); // sanitized away → treated complete
+    // Sanitized away → no short-of-total signal; only the verification probe runs.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.extractionComplete).toBe(true);
   });
 
@@ -273,11 +318,12 @@ describe('extractQuestionBank — continuation rounds', () => {
     fetchMock
       .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 2 })))
       .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 3, count: 2 })))
-      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 5, count: 2 })));
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 5, count: 2 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     const result = await extractQuestionBank({ text: bigText }, 30, 'gemini-2.5-flash');
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(result.questions).toHaveLength(6);
     expect(result.extractionComplete).toBe(true);
   });
@@ -288,7 +334,8 @@ describe('extractQuestionBank — continuation rounds', () => {
       .mockResolvedValueOnce(
         makeBankResponse(makeQuestions({ idStart: 1, count: 3 }), { finishReason: 'MAX_TOKENS' })
       )
-      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 4, count: 2 })));
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 4, count: 2 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     await extractQuestionBank(
       { text: 'doc' },
@@ -307,7 +354,9 @@ describe('extractQuestionBank — continuation rounds', () => {
   });
 
   it('unknown model id falls back to the conservative output-token default', async () => {
-    fetchMock.mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 2 })));
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 2 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
 
     await extractQuestionBank({ text: 'doc' }, 30, 'my-custom-model');
 

@@ -9,8 +9,11 @@ const BANK_INDEX_KEY = 'smart_exam_bank_index';
  *  1 — continuation extraction on truncation (PR #31)
  *  2 — model-reported document total drives continuation, so voluntary early
  *      stops (clean finish with only part of the document) are caught too
+ *  3 — clean finishes are verified with a continuation probe: the model must
+ *      explicitly confirm nothing remains after the last extracted question,
+ *      catching early stops where the reported total was lowballed or omitted
  */
-export const CURRENT_EXTRACTOR_VERSION = 2;
+export const CURRENT_EXTRACTOR_VERSION = 3;
 // Full CASE A banks can reach ~0.5-1MB each (e.g. a 500-question PDF); 5 banks
 // keeps the worst case around the common 5MB localStorage quota alongside the
 // document library and exam history.

@@ -604,6 +604,7 @@ export const extractQuestionBank = async (
 ${positioning}
         ▸ Number the new questions starting at id ${c.extractedCount + 1}.
         ▸ Emit AS MANY of the remaining questions as fit in this response — do NOT stop after a handful.
+        ▸ If NO questions remain after that point (the document is fully extracted), return an EMPTY 'questions' array — do NOT re-emit questions already extracted.
         ▸ Keep 'caseType' identical to the previous rounds ('A').
         All other extraction rules above still apply.`;
   };
@@ -729,7 +730,7 @@ ${positioning}
               }
             }
           },
-          required: ["caseType", "questions"]
+          required: ["caseType", "totalQuestionCount", "questions"]
         },
         timeoutMs: requestTimeoutMs,
       }
@@ -766,7 +767,10 @@ ${positioning}
 
     const questions = Array.isArray(questionsData) ? questionsData : [];
 
-    if (questions.length === 0) throw new Error("NO_QUESTIONS: No questions were extracted.");
+    // An empty CONTINUATION round is the model's explicit "nothing remains
+    // after the anchor" confirmation — a valid, expected completion signal for
+    // the verification probe. Only the initial round treats empty as an error.
+    if (questions.length === 0 && !continuation) throw new Error("NO_QUESTIONS: No questions were extracted.");
 
     // Preserve original options/order from AI (verbatim). Display-time shuffling is handled by optionShuffler.
     // normalizeGeneratedQuestion validates + canonicalizes each question per type
@@ -850,11 +854,20 @@ ${positioning}
     const stillShortOfTotal = () =>
       reportedTotal !== undefined && merged.length < reportedTotal;
     let ordinalFallbackUsed = false;
+    // A clean finish is NOT trusted on its own for CASE A: models routinely
+    // stop after ~60-70 questions of a 500-question document with a clean STOP
+    // while reporting (or omitting) a totalQuestionCount that matches only what
+    // they emitted — so neither truncation nor the reported total fires and the
+    // bank silently freezes at a fraction of the document. Until the model
+    // explicitly confirms "nothing remains after the last question" (an empty
+    // continuation round) — or probing stops yielding anything new — keep
+    // asking it to continue past the anchor.
+    let pendingVerification = caseType === 'A';
 
     while (
       caseType === 'A' &&
       anchor &&
-      (wasTruncated || hasMoreText() || stillShortOfTotal()) &&
+      (wasTruncated || hasMoreText() || stillShortOfTotal() || pendingVerification) &&
       round <= MAX_CONTINUATION_ROUNDS
     ) {
       advanceTextWindow(anchor);
@@ -874,6 +887,20 @@ ${positioning}
         );
         break;
       }
+      // The model explicitly confirmed nothing remains after the anchor (clean
+      // empty continuation) and no unscanned text window is left — extraction
+      // is verified complete.
+      if (result.questions.length === 0 && !result.wasTruncated && !hasMoreText()) {
+        pendingVerification = false;
+        wasTruncated = false;
+        round++;
+        logger.info(
+          `Extraction round ${round}: model confirmed no questions remain — bank complete at ${merged.length}.`,
+          'geminiService.extractQuestionBank'
+        );
+        break;
+      }
+
       const netNew = addRound(result.questions);
       // Models sometimes re-report the total per round; keep the largest sane value.
       if (result.reportedTotal !== undefined) {
@@ -899,6 +926,9 @@ ${positioning}
           );
           continue;
         }
+        // Both anchor- and ordinal-positioned probes found nothing new — the
+        // document has been mined dry; that's as verified as it gets.
+        pendingVerification = false;
         logger.warn(`Continuation round ${round} added no new questions — stopping.`, 'geminiService.extractQuestionBank');
         break;
       }
@@ -910,7 +940,8 @@ ${positioning}
     }
 
     const extractionComplete =
-      caseType !== 'A' || (!wasTruncated && !hasMoreText() && !stillShortOfTotal());
+      caseType !== 'A' ||
+      (!wasTruncated && !hasMoreText() && !stillShortOfTotal() && !pendingVerification);
     if (!extractionComplete) {
       logger.warn(
         `Extraction stopped incomplete after ${round} round(s) with ${merged.length}/${reportedTotal ?? '?'} questions (truncated=${wasTruncated}, moreText=${hasMoreText()}).`,
