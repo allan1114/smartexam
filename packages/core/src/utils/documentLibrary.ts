@@ -1,20 +1,23 @@
 import { DocumentSource } from '../types';
 import { generateDocumentHash } from './examStorage';
 import { logger } from './logger';
+import { putFile, getFile, deleteFile } from './fileStore';
 
 /**
  * Saved-documents library.
  *
  * Lets users re-open a previously uploaded/pasted document WITHOUT re-uploading.
- * Stored in a NEW localStorage namespace (smart_exam_doclib_*) so it never
- * touches existing keys.
+ * Metadata lives in its own localStorage namespace (smart_exam_doclib_*) so it
+ * never touches existing keys.
  *
- * Storage policy (matches "text/paste first" decision):
- *  - kind === 'text'  → full text is stored, so it is fully restorable offline.
- *  - kind === 'file'  → only metadata (name + mimeType) is stored, NOT the
- *    base64 bytes (PDFs/images can be megabytes and would blow the localStorage
- *    quota). The cached question bank for the same hash still lets the user
- *    re-run exams; if it has been evicted the UI asks them to re-upload.
+ * Storage policy:
+ *  - kind === 'text'  → full text is stored in localStorage, restorable offline.
+ *  - kind === 'file'  → metadata (name + mimeType) in localStorage; the base64
+ *    bytes go to IndexedDB (see fileStore), which has no ~5MB quota to blow.
+ *    That is what makes an uploaded PDF a real reference document: re-open it
+ *    later and the exam can be rebuilt from the original file. If IndexedDB is
+ *    unavailable or the file exceeded the size cap, the bytes are simply absent
+ *    and the UI asks for a re-upload — the pre-existing behavior.
  */
 
 const DOCLIB_INDEX_KEY = 'smart_exam_doclib_index';
@@ -97,7 +100,12 @@ export const saveDocument = (source: DocumentSource): SavedDocument | null => {
     index.push(hash);
     while (index.length > MAX_DOCS) {
       const evict = index.shift();
-      if (evict) localStorage.removeItem(DOCLIB_KEY_PREFIX + evict);
+      if (evict) {
+        localStorage.removeItem(DOCLIB_KEY_PREFIX + evict);
+        // Drop the evicted document's bytes too, so IndexedDB can't grow
+        // unbounded behind a capped index.
+        void deleteFile(evict).catch(() => {});
+      }
     }
     writeIndex(index);
     return record;
@@ -122,10 +130,30 @@ export const listDocuments = (): SavedDocument[] => {
 };
 
 /**
- * Rebuild a usable DocumentSource for a saved document.
- *  - text docs → fully restored ({ text, name }).
- *  - file docs → null, because the bytes were intentionally not stored; the
- *    caller should prompt the user to re-upload.
+ * Persist an uploaded file's bytes so the document can be re-opened later.
+ * Best-effort: returns false when IndexedDB is unavailable or the file is over
+ * the size cap, in which case the document is still listed but will need a
+ * re-upload to be used again.
+ */
+export const saveDocumentFile = async (
+  hash: string,
+  fileData: { data: string; mimeType: string }
+): Promise<boolean> => {
+  try {
+    const stored = await putFile(hash, fileData);
+    if (stored) logger.info(`Document file kept as reference: ${hash}`, 'documentLibrary.saveDocumentFile');
+    return stored;
+  } catch (e) {
+    logger.warn('Failed to persist document file bytes', 'documentLibrary.saveDocumentFile', e);
+    return false;
+  }
+};
+
+/**
+ * Rebuild a usable DocumentSource for a saved document — TEXT ONLY.
+ * File-backed documents need `loadDocumentAsync`, since their bytes live in
+ * IndexedDB. Kept synchronous for existing callers and for text documents,
+ * which are fully restorable from localStorage alone.
  */
 export const loadDocument = (hash: string): DocumentSource | null => {
   const doc = readDoc(hash);
@@ -136,10 +164,36 @@ export const loadDocument = (hash: string): DocumentSource | null => {
   return null;
 };
 
+/**
+ * Rebuild a usable DocumentSource for any saved document.
+ *  - text docs → restored from localStorage.
+ *  - file docs → restored from the bytes kept in IndexedDB.
+ * Returns null only when the document is unknown or its bytes were never
+ * stored (IndexedDB unavailable, over the size cap, or saved by an older
+ * version) — the caller then prompts for a re-upload.
+ */
+export const loadDocumentAsync = async (hash: string): Promise<DocumentSource | null> => {
+  const doc = readDoc(hash);
+  if (!doc) return null;
+  if (doc.kind === 'text' && doc.text) {
+    return { text: doc.text, name: doc.name };
+  }
+  try {
+    const file = await getFile(hash);
+    if (file) {
+      return { fileData: { data: file.data, mimeType: file.mimeType || doc.mimeType || '' }, name: doc.name };
+    }
+  } catch (e) {
+    logger.warn('Failed to read stored document file', 'documentLibrary.loadDocumentAsync', e);
+  }
+  return null;
+};
+
 export const deleteDocument = (hash: string): void => {
   try {
     localStorage.removeItem(DOCLIB_KEY_PREFIX + hash);
     writeIndex(getIndex().filter(h => h !== hash));
+    void deleteFile(hash).catch(() => {});
   } catch (e) {
     logger.warn('Failed to delete document from library', 'documentLibrary.deleteDocument', e);
   }

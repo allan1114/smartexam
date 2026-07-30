@@ -816,28 +816,40 @@ ${positioning}
     // ---- Merge state shared across rounds ----
     const merged: Question[] = [];
     const seen = new Set<string>();
-    const addRound = (qs: Question[]): number => {
-      let added = 0;
+    /** Returns the questions this round actually contributed (duplicates dropped). */
+    const addRound = (qs: Question[]): Question[] => {
+      const added: Question[] = [];
       for (const q of qs) {
         const key = questionDedupKey(q);
         if (seen.has(key)) continue;
         seen.add(key);
         merged.push(q);
-        added++;
+        added.push(q);
       }
       return added;
     };
 
-    addRound(first.questions);
+    /**
+     * Where the model stopped reading. Must be the last question the round
+     * actually CONTRIBUTED, not the last it emitted: models routinely append a
+     * few already-seen questions after the new ones, and anchoring on one of
+     * those walks the anchor backwards — the next round is then asked to
+     * continue from a point it already passed, returns only duplicates, and
+     * extraction stops early with a truncated bank.
+     */
+    const anchorOf = (added: Question[], emitted: Question[]): Question | undefined =>
+      added[added.length - 1] ?? emitted[emitted.length - 1];
+
+    const firstAdded = addRound(first.questions);
     const caseType = first.caseType;
     let wasTruncated = first.wasTruncated;
     // The model's own count of questions in the whole document. This is what
     // lets us catch VOLUNTARY early stops: a clean (non-truncated) response
     // that still covers fewer questions than the document holds.
     let reportedTotal = first.reportedTotal;
-    // Anchor = the last question of the LATEST round in document order (not of
-    // the merged pool) — that's where the model stopped reading.
-    let anchor: Question | undefined = first.questions[first.questions.length - 1];
+    // Anchor = the last question the LATEST round contributed (not of the merged
+    // pool) — that's how far into the document the model actually got.
+    let anchor: Question | undefined = anchorOf(firstAdded, first.questions);
     let round = 1;
     onProgress?.({ extracted: merged.length, round, total: reportedTotal });
     logger.info(
@@ -901,7 +913,8 @@ ${positioning}
         break;
       }
 
-      const netNew = addRound(result.questions);
+      const addedThisRound = addRound(result.questions);
+      const netNew = addedThisRound.length;
       // Models sometimes re-report the total per round; keep the largest sane value.
       if (result.reportedTotal !== undefined) {
         reportedTotal = Math.max(reportedTotal ?? 0, result.reportedTotal);
@@ -929,12 +942,21 @@ ${positioning}
         // Both anchor- and ordinal-positioned probes found nothing new — the
         // document has been mined dry; that's as verified as it gets.
         pendingVerification = false;
+        // A truncation flag left over from an earlier round no longer implies
+        // missing content once two independent probes have come back dry AND we
+        // have at least as many questions as the model says the document holds.
+        // Without this a full bank is reported incomplete on nearly every large
+        // PDF (the last productive round almost always ends on MAX_TOKENS), and
+        // a warning that fires on healthy extractions is a warning users learn
+        // to ignore. Still short of the reported total ⇒ stays incomplete.
+        if (!stillShortOfTotal() && reportedTotal !== undefined) wasTruncated = false;
         logger.warn(`Continuation round ${round} added no new questions — stopping.`, 'geminiService.extractQuestionBank');
         break;
       }
 
-      // Productive round: adopt its signals and re-anchor on its last question.
-      anchor = result.questions[result.questions.length - 1];
+      // Productive round: adopt its signals and re-anchor on the last question
+      // it contributed (trailing duplicates must not drag the anchor back).
+      anchor = anchorOf(addedThisRound, result.questions);
       wasTruncated = result.wasTruncated;
       ordinalFallbackUsed = false;
     }

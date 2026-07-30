@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   saveDocument,
+  saveDocumentFile,
   listDocuments,
   loadDocument,
+  loadDocumentAsync,
   deleteDocument,
 } from '../documentLibrary';
 import { generateDocumentHash } from '../examStorage';
@@ -39,12 +41,30 @@ describe('documentLibrary', () => {
     expect(list.filter(d => d.hash === hash).length).toBe(1);
   });
 
-  it('stores only metadata for file documents (no base64 restore)', () => {
+  it('stores metadata for file documents; sync loadDocument stays text-only', () => {
     const saved = saveDocument({ fileData: { data: 'BASE64DATA', mimeType: 'application/pdf' }, name: 'paper.pdf' });
     expect(saved!.kind).toBe('file');
     expect(saved!.mimeType).toBe('application/pdf');
-    // File bytes are intentionally not restorable.
+    // Bytes live in IndexedDB, so the synchronous accessor never returns them.
     expect(loadDocument(saved!.hash)).toBeNull();
+  });
+
+  it('loadDocumentAsync restores text documents without touching the file store', async () => {
+    const saved = saveDocument({ text: 'async notes', name: 'n.txt' })!;
+    const restored = await loadDocumentAsync(saved.hash);
+    expect(restored?.text).toBe('async notes');
+    expect(restored?.name).toBe('n.txt');
+  });
+
+  it('loadDocumentAsync returns null for a file whose bytes were never stored', async () => {
+    // No IndexedDB in this env — the re-upload prompt path.
+    const saved = saveDocument({ fileData: { data: 'BASE64DATA', mimeType: 'application/pdf' }, name: 'p.pdf' })!;
+    await expect(loadDocumentAsync(saved.hash)).resolves.toBeNull();
+    await expect(saveDocumentFile(saved.hash, { data: 'BASE64DATA', mimeType: 'application/pdf' })).resolves.toBe(false);
+  });
+
+  it('loadDocumentAsync returns null for an unknown hash', async () => {
+    await expect(loadDocumentAsync('does-not-exist')).resolves.toBeNull();
   });
 
   it('lists most-recently-used first', () => {

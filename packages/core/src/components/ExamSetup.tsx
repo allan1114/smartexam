@@ -22,12 +22,19 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
     return saved || DEFAULT_MODEL;
   });
   const [contentRange, setContentRange] = useState('');
-  const [bankInfo, setBankInfo] = useState<{ poolSize: number; caseType: 'A' | 'B' } | null>(null);
+  const [useAllQuestions, setUseAllQuestions] = useState(false);
+  const [bankInfo, setBankInfo] = useState<
+    { poolSize: number; caseType: 'A' | 'B'; extractionComplete?: boolean } | null
+  >(null);
 
   useEffect(() => {
     if (docHash) {
       const bank = loadQuestionBank(docHash);
-      setBankInfo(bank ? { poolSize: bank.poolSize, caseType: bank.caseType } : null);
+      setBankInfo(
+        bank
+          ? { poolSize: bank.poolSize, caseType: bank.caseType, extractionComplete: bank.extractionComplete }
+          : null
+      );
     } else {
       setBankInfo(null);
     }
@@ -55,7 +62,8 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
       questionOrder: order,
       answerFormat: answerFormat as AnswerFormat,
       contentRange: contentRange.trim() || undefined,
-      temperature
+      temperature,
+      useAllQuestions
     });
   };
 
@@ -67,6 +75,13 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
         <div className="mb-6 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 flex items-start justify-between gap-4">
           <div className="text-sm text-emerald-900 dark:text-emerald-200">
             <p className="font-bold">Question bank ready ({bankInfo.poolSize} questions, CASE {bankInfo.caseType})</p>
+            {bankInfo.caseType === 'A' && (
+              <p className="text-xs mt-1 font-bold">
+                {bankInfo.extractionComplete === false
+                  ? '⚠️ 抽取未完成 — 題庫可能未包含文件全部題目，建議按 Regenerate 重試。'
+                  : '✅ 已抽取整份文件的題目，可用「Use every question」原封不動載入全部題目。'}
+              </p>
+            )}
             <p className="text-xs mt-1 opacity-80">Each new exam will sample a different subset locally — no extra AI calls. Click <em>Regenerate</em> to re-analyze the document.</p>
           </div>
           <button
@@ -99,19 +114,35 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
           <div>
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">
               Total Questions
-              {questionCount > 30 && (
+              {!useAllQuestions && questionCount > 30 && (
                 <span className="ml-2 text-amber-500 font-black animate-pulse">! High Load</span>
               )}
             </label>
-            <input 
-              type="number" 
-              min="1" 
-              max="100" 
-              value={questionCount}
+            <input
+              type="number"
+              min="1"
+              max="500"
+              value={useAllQuestions ? (bankInfo?.poolSize ?? questionCount) : questionCount}
+              disabled={useAllQuestions}
               onChange={(e) => setQuestionCount(Math.max(1, parseInt(e.target.value) || 1))}
-              className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-900 dark:text-white"
+              className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            {questionCount > 30 && (
+            <label className="flex items-start gap-2 mt-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useAllQuestions}
+                onChange={(e) => setUseAllQuestions(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-indigo-600 shrink-0"
+              />
+              <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 leading-tight">
+                Use every question
+                <span className="block font-medium opacity-70">
+                  載入文件全部題目，唔會抽樣。
+                  {useAllQuestions && bankInfo && ` 目前題庫：${bankInfo.poolSize} 題。`}
+                </span>
+              </span>
+            </label>
+            {!useAllQuestions && questionCount > 30 && (
               <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-2 font-bold leading-tight">
                 Large requests (&gt;30) may time out. Consider breaking them into smaller sessions.
               </p>

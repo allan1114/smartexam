@@ -72,10 +72,14 @@
 ### 🆕 Document Management & Reliability (Latest)
 - **📁 Saved Documents (skip re-upload)**: Every uploaded/pasted document is recorded in a "Saved Documents" list — re-open it from the Home page with one click, no re-upload needed
   - Text / pasted content: **fully restored**, works offline
-  - PDF / images: only the name and MIME type are stored (**not** the base64 bytes, to avoid blowing the localStorage quota); if the cached question bank is still present you can retake immediately, otherwise you're prompted to re-upload
+  - PDF / images: name and MIME type live in localStorage, **the file bytes live in IndexedDB** (no 5MB quota), so an uploaded PDF becomes a genuine reference document — re-open it from the home page without re-uploading, and questions can be re-extracted from the original file even after the cached question bank has been evicted
+  - Cap is ~19MB per file; over the cap, or on a browser without IndexedDB, it falls back to the previous behavior (metadata only) and prompts for a re-upload
   - Up to **20** documents are kept; the oldest is evicted beyond the cap
 - **📄 HTML Report Download**: After an exam, download a **self-contained HTML report** from the results page (inline CSS, zero external assets, opens offline, printable) containing every question, your answer, correct/incorrect status, the correct answer, explanation, document evidence quote, and overall score
 - **🎯 Guaranteed Question Count**: Ask for 40 questions and you get 40. The app generates and de-duplicates into the bank until the requested count is met; if the document genuinely can't yield enough, a clear message is shown instead of silently returning fewer
+- **📚 Load Every Question Unchanged**: Tick **Use every question** in the exam setup to run the entire extracted bank — no sampling, and no 100-question cap. Combined with **Question Order = Sequential**, the whole paper is reproduced in the PDF's own order, with the original wording and option order
+  - The bank panel reports extraction status: ✅ fully extracted, or ⚠️ not verified complete (click Regenerate to retry)
+  - If extraction stopped short, an amber notice appears when the exam starts, so a partial bank is never silently treated as the full paper
 - **🛡️ Sturdier Exam Creation**:
   - Auto-fallback to a stable backup model when the chosen model is overloaded (429/503) **or** invalid/unavailable (400/404 "model not found")
   - **90-second timeout** (AbortController) per request so a hung connection can't block creation
@@ -587,6 +591,19 @@ smartexam/
 ### Enable diagnostic logs
 
 Go to **⚙️ Settings → 📋 Log Level** and pick `DEBUG`, then open the browser DevTools Console to see step-by-step logs (model calls, fallback switches, question-bank access, etc.). Logs are tagged with their source, e.g. `geminiService.callWithFallback`, `questionBank.appendToQuestionBank`, to make tracing easy.
+
+### Verify against your own PDF
+
+To find out how many questions a specific PDF actually yields, whether extraction covered all of it, and whether anything was altered, run the check against your own file:
+
+```bash
+SMARTEXAM_PDF=/path/to/your-exam.pdf \
+GEMINI_API_KEY=your-key \
+SMARTEXAM_EXPECTED=120 \
+npx vitest run verifyPdf --root packages/core
+```
+
+It reports `caseType` (A = the document already contains questions, B = they were generated), how many questions were extracted, `extractionComplete`, any duplicates or malformed items, and whether the "load every question" path altered or reordered anything. `SMARTEXAM_EXPECTED` is optional and compares against the count you believe the PDF holds. The check skips itself (no API cost) unless both `SMARTEXAM_PDF` and `GEMINI_API_KEY` are set; `SMARTEXAM_MODEL` overrides the model.
 
 ### Common messages & fixes
 

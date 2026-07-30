@@ -5,6 +5,7 @@ import {
   loadQuestionBank,
   appendToQuestionBank,
   questionDedupKey,
+  sampleQuestionsFromBank,
   CURRENT_EXTRACTOR_VERSION,
 } from '../questionBank';
 import { Question } from '../../types';
@@ -135,6 +136,67 @@ describe('questionBank', () => {
       const { bank, persisted } = appendToQuestionBank('missing', [q(1, 'Q')]);
       expect(bank).toBeNull();
       expect(persisted).toBe(false);
+    });
+  });
+
+  describe('sampleQuestionsFromBank', () => {
+    const makeBank = (n: number) => {
+      const { bank } = saveQuestionBank({
+        documentHash: 'sample',
+        questions: Array.from({ length: n }, (_, i) => q(i + 1, `Q${i + 1}`, [`A${i}`, `B${i}`])),
+        caseType: 'A',
+        modelUsed: 'm',
+      });
+      return bank;
+    };
+
+    it('returns every question when count >= poolSize', () => {
+      const picked = sampleQuestionsFromBank(makeBank(40), 40);
+      expect(picked).toHaveLength(40);
+      const stems = picked.map(p => p.question).sort();
+      expect(new Set(stems).size).toBe(40);
+    });
+
+    it('preserveOrder keeps document order for the whole bank', () => {
+      const picked = sampleQuestionsFromBank(makeBank(30), 30, { preserveOrder: true });
+      expect(picked.map(p => p.question)).toEqual(
+        Array.from({ length: 30 }, (_, i) => `Q${i + 1}`)
+      );
+      // ids are renumbered 1..N in the emitted order
+      expect(picked.map(p => p.id)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+    });
+
+    it('preserveOrder keeps document order for a partial sample too', () => {
+      const picked = sampleQuestionsFromBank(makeBank(50), 10, { preserveOrder: true });
+      expect(picked).toHaveLength(10);
+      const positions = picked.map(p => parseInt(p.question.replace('Q', ''), 10));
+      expect([...positions]).toEqual([...positions].sort((a, b) => a - b));
+      expect(new Set(positions).size).toBe(10);
+    });
+
+    it('without preserveOrder the order is shuffled (not document order)', () => {
+      const bank = makeBank(60);
+      // Over 5 draws of a 60-question bank, an exact document-order result every
+      // time would mean sampling isn't shuffling at all.
+      const anyShuffled = Array.from({ length: 5 }, () =>
+        sampleQuestionsFromBank(bank, 60).map(p => p.question)
+      ).some(order => order.join('|') !== Array.from({ length: 60 }, (_, i) => `Q${i + 1}`).join('|'));
+      expect(anyShuffled).toBe(true);
+    });
+
+    it('caps at poolSize when more questions are requested than exist', () => {
+      const picked = sampleQuestionsFromBank(makeBank(12), 100, { preserveOrder: true });
+      expect(picked).toHaveLength(12);
+    });
+
+    it('returns an empty array for an empty bank', () => {
+      const { bank } = saveQuestionBank({
+        documentHash: 'empty',
+        questions: [],
+        caseType: 'B',
+        modelUsed: 'm',
+      });
+      expect(sampleQuestionsFromBank(bank, 10)).toEqual([]);
     });
   });
 });

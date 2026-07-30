@@ -363,4 +363,45 @@ describe('extractQuestionBank — continuation rounds', () => {
     const body = getRequestBody(fetchMock, 0);
     expect(body.generationConfig.maxOutputTokens).toBe(DEFAULT_MAX_OUTPUT_TOKENS);
   });
+
+  it('trailing duplicates in a round do not drag the anchor backwards', async () => {
+    // Models routinely append a few already-seen questions after the new ones.
+    // Anchoring on the last EMITTED question would point the next round back at
+    // question 2 — it would then return only duplicates and extraction would
+    // stop early. The anchor must be the last question the round CONTRIBUTED.
+    const round1 = makeQuestions({ idStart: 1, count: 3 });
+    const round2 = [
+      ...makeQuestions({ idStart: 4, count: 3 }), // new: 4,5,6
+      ...makeQuestions({ idStart: 2, count: 1 }), // duplicate of question 2, emitted last
+    ];
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(round1, { truncate: true }))
+      .mockResolvedValueOnce(makeBankResponse(round2))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    const probeText = getRequestBody(fetchMock, 2).systemInstruction.parts[0].text as string;
+    expect(probeText).toContain('Question number 6');
+    expect(probeText).not.toContain('Question number 2 —');
+    // 1,2 (3 was cut by truncation) + 4,5,6, with the duplicate dropped.
+    expect(result.questions).toHaveLength(5);
+  });
+
+  it('a round of nothing but duplicates keeps the previous anchor', async () => {
+    const round1 = makeQuestions({ idStart: 1, count: 3 });
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(round1, { truncate: true }))
+      // Model re-emits what we already have: net-new 0 → ordinal fallback, and
+      // the anchor must stay on question 2 rather than becoming undefined.
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 2 })))
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 3, count: 2 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    const ordinalText = getRequestBody(fetchMock, 2).systemInstruction.parts[0].text as string;
+    expect(ordinalText).toContain('SKIP the FIRST 2 questions');
+    expect(result.questions).toHaveLength(4);
+  });
 });
