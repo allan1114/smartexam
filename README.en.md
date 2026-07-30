@@ -76,6 +76,9 @@
   - Up to **20** documents are kept; the oldest is evicted beyond the cap
 - **📄 HTML Report Download**: After an exam, download a **self-contained HTML report** from the results page (inline CSS, zero external assets, opens offline, printable) containing every question, your answer, correct/incorrect status, the correct answer, explanation, document evidence quote, and overall score
 - **🎯 Guaranteed Question Count**: Ask for 40 questions and you get 40. The app generates and de-duplicates into the bank until the requested count is met; if the document genuinely can't yield enough, a clear message is shown instead of silently returning fewer
+- **📚 Load Every Question Unchanged**: Tick **Use every question** in the exam setup to run the entire extracted bank — no sampling, and no 100-question cap. Combined with **Question Order = Sequential**, the whole paper is reproduced in the PDF's own order, with the original wording and option order
+  - The bank panel reports extraction status: ✅ fully extracted, or ⚠️ not verified complete (click Regenerate to retry)
+  - If extraction stopped short, an amber notice appears when the exam starts, so a partial bank is never silently treated as the full paper
 - **🛡️ Sturdier Exam Creation**:
   - Auto-fallback to a stable backup model when the chosen model is overloaded (429/503) **or** invalid/unavailable (400/404 "model not found")
   - **90-second timeout** (AbortController) per request so a hung connection can't block creation

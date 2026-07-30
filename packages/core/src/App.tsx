@@ -37,8 +37,9 @@ const App: React.FC = () => {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [results, setResults] = useState<ExamResult | null>(null);
   const [error, setError] = useState<{message: string, type: string} | null>(null);
-  // Non-fatal notice (e.g. question bank too big for localStorage) — amber banner.
-  const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  // Non-fatal notices (bank too big for localStorage, incomplete extraction …)
+  // rendered as amber banners. Never block the exam flow.
+  const [warnings, setWarnings] = useState<string[]>([]);
   // Live extraction progress shown on the loading screen during multi-round extraction.
   const [loadingProgress, setLoadingProgress] = useState<string | null>(null);
   const [history, setHistory] = useState<ExamResult[]>([]);
@@ -145,12 +146,16 @@ const App: React.FC = () => {
     return shuffled;
   };
 
+  const addWarning = useCallback((msg: string) => {
+    setWarnings(prev => (prev.includes(msg) ? prev : [...prev, msg]));
+  }, []);
+
   const startExam = async (examConfig: ExamConfig) => {
     if (!docSource) return;
     setConfig(examConfig);
     setCurrentState(AppState.LOADING);
     setError(null);
-    setStorageWarning(null);
+    setWarnings([]);
     setLoadingProgress(null);
     setIsRetaking(false);
 
@@ -212,14 +217,26 @@ const App: React.FC = () => {
           extractionComplete,
         });
         bank = saved.bank;
-        if (!saved.persisted) setStorageWarning(storageWarningMsg);
+        if (!saved.persisted) addWarning(storageWarningMsg);
       }
 
-      // 1b) HONOR THE REQUESTED COUNT — CASE B only. A CASE A bank now already
-      //     holds everything the document contains (continuation extraction),
-      //     so re-running extraction can only return duplicates; fall through
-      //     to the NOT_ENOUGH_QUESTIONS check which reports the true maximum.
-      if (bank.caseType !== 'A') {
+      // Extraction that stopped short (output cap, round cap, model early-stop)
+      // must be visible: otherwise "use all questions" silently hands back a
+      // fraction of the paper and looks complete. Applies to a freshly built
+      // bank AND to a cached one carried over from an earlier session.
+      if (bank.caseType === 'A' && bank.extractionComplete === false) {
+        addWarning(
+          `AI 未能確認已抽取整份文件，目前題庫有 ${bank.questions.length} 題，可能未包含全部題目。` +
+            `可在設定頁按「Regenerate」重新抽取，或用「Focus Range」分章節逐段處理。`
+        );
+      }
+
+      // 1b) HONOR THE REQUESTED COUNT — CASE B only, and only when the user asked
+      //     for a specific count. A CASE A bank already holds everything the
+      //     document contains (continuation extraction), so re-running extraction
+      //     can only return duplicates; fall through to the NOT_ENOUGH_QUESTIONS
+      //     check which reports the true maximum.
+      if (bank.caseType !== 'A' && !examConfig.useAllQuestions) {
         const TOPUP_MAX_ATTEMPTS = 3;
         let topupAttempts = 0;
         while (bank.questions.length < examConfig.totalQuestions && topupAttempts < TOPUP_MAX_ATTEMPTS) {
@@ -238,29 +255,44 @@ const App: React.FC = () => {
           const appended = extra && extra.length > 0 ? appendToQuestionBank(docHash, extra) : null;
           if (appended?.bank) {
             bank = appended.bank;
-            if (!appended.persisted) setStorageWarning(storageWarningMsg);
+            if (!appended.persisted) addWarning(storageWarningMsg);
           }
           // No net-new unique questions this round → the document can't yield more.
           if (bank.questions.length <= before) break;
         }
       }
 
+      // "Use every question" takes whatever the document yielded — the bank size
+      // IS the target, so the fixed-count guard below doesn't apply to it.
+      const effectiveCount = examConfig.useAllQuestions
+        ? bank.questions.length
+        : examConfig.totalQuestions;
+
       // If we still can't reach the requested count, tell the user the real max
       // instead of silently handing back fewer questions.
-      if (bank.questions.length < examConfig.totalQuestions) {
+      if (!examConfig.useAllQuestions && bank.questions.length < examConfig.totalQuestions) {
         throw new Error(
-          `NOT_ENOUGH_QUESTIONS: 呢份文件最多只能生成 ${bank.questions.length} 題，但你揀咗 ${examConfig.totalQuestions} 題。請將題目數量調至 ${bank.questions.length} 或以下再試。`
+          `NOT_ENOUGH_QUESTIONS: 呢份文件最多只能生成 ${bank.questions.length} 題，但你揀咗 ${examConfig.totalQuestions} 題。請將題目數量調至 ${bank.questions.length} 或以下，或者剔選「Use every question」。`
         );
       }
 
-      // 2) Sample N questions locally — different subset on every call.
-      const generatedQuestions = sampleQuestionsFromBank(bank, examConfig.totalQuestions);
+      // 2) Take the questions locally — a different subset on every call, unless
+      //    the whole bank was requested. SEQUENTIAL keeps the document's order
+      //    so an uploaded exam paper reads exactly as it does in the PDF.
+      const generatedQuestions = sampleQuestionsFromBank(bank, effectiveCount, {
+        preserveOrder: examConfig.questionOrder === 'SEQUENTIAL',
+      });
       if (!generatedQuestions || generatedQuestions.length === 0) {
         throw new Error("NO_QUESTIONS_FOUND: Question bank is empty.");
       }
 
+      // Pin the count actually used so results/smart-retake never read the
+      // pre-resolution placeholder from "use every question" mode.
+      const resolvedConfig: ExamConfig = { ...examConfig, totalQuestions: generatedQuestions.length };
+      setConfig(resolvedConfig);
+
       // Save original questions to localStorage (Level 1 - preserves 100% integrity)
-      const sessionId = saveExamSession(generatedQuestions, docHash, examConfig);
+      const sessionId = saveExamSession(generatedQuestions, docHash, resolvedConfig);
       setCurrentExamSessionId(sessionId);
 
       // SEQUENTIAL mode: options stay in original order; RANDOM mode: options shuffled
@@ -518,24 +550,24 @@ const App: React.FC = () => {
 
         <main className="flex-grow container mx-auto px-4 py-8 max-w-5xl">
         {renderError()}
-        {storageWarning && (
-          <div className="mb-6 p-5 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl shadow-sm animate-slide-up flex items-start space-x-4 dark:bg-amber-900/20 dark:border-amber-600">
+        {warnings.map((warning) => (
+          <div key={warning} className="mb-6 p-5 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl shadow-sm animate-slide-up flex items-start space-x-4 dark:bg-amber-900/20 dark:border-amber-600">
             <div className="bg-amber-500 p-2 rounded-lg mt-0.5">
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
             <div className="flex-1">
-              <h4 className="font-black text-amber-900 dark:text-amber-300 text-sm uppercase tracking-wider mb-1">儲存空間不足</h4>
-              <p className="text-amber-700 dark:text-amber-400 font-medium text-sm leading-relaxed">{storageWarning}</p>
+              <h4 className="font-black text-amber-900 dark:text-amber-300 text-sm uppercase tracking-wider mb-1">請注意</h4>
+              <p className="text-amber-700 dark:text-amber-400 font-medium text-sm leading-relaxed">{warning}</p>
             </div>
             <button
-              onClick={() => setStorageWarning(null)}
+              onClick={() => setWarnings(prev => prev.filter(w => w !== warning))}
               className="text-amber-400 hover:text-amber-600 font-black text-lg leading-none"
               aria-label="Dismiss warning"
             >
               ×
             </button>
           </div>
-        )}
+        ))}
 
         {currentState === AppState.HOME && (
           <Home

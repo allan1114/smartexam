@@ -63,7 +63,18 @@ export interface DocumentSource {
 export interface ExamConfig {
   mode: ExamMode;
   durationMinutes: number;
+  /**
+   * Number of questions in the session. When `useAllQuestions` is set this is
+   * resolved to the full bank size at exam start, so downstream consumers
+   * (results, smart retake) always see the count actually used.
+   */
   totalQuestions: number;
+  /**
+   * Use EVERY question the document yielded instead of a sampled subset — the
+   * "load the whole paper as-is" mode for exam PDFs (CASE A). Skips the
+   * NOT_ENOUGH_QUESTIONS guard, since the bank size IS the target.
+   */
+  useAllQuestions?: boolean;
   model: string;
   questionOrder: QuestionOrder;
   answerFormat: AnswerFormat;

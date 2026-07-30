@@ -194,39 +194,50 @@ export const deleteQuestionBank = (documentHash: string): void => {
   }
 };
 
+export interface SampleOptions {
+  /**
+   * Emit the selected questions in the bank's own order (= document order for a
+   * CASE A exam paper) instead of a shuffled order. WHICH questions get picked
+   * is still random; only the ordering is preserved. Used for SEQUENTIAL
+   * sessions — without it a "sequential" exam still came out shuffled, because
+   * sampling itself reordered the pool.
+   */
+  preserveOrder?: boolean;
+}
+
 /**
  * Randomly sample `count` questions from the bank using Fisher-Yates on indices.
  * Uses Math.random() — each call yields a different subset (true randomness, no seed).
- * If the bank pool is smaller than `count`, returns the entire bank (with a warn).
+ * If the bank pool is smaller than `count`, returns the entire bank (with a warn);
+ * passing `count >= poolSize` with `preserveOrder` is how the "use every question,
+ * in document order" mode loads a whole exam paper unchanged.
  * Returned questions are deep-cloned and re-numbered id = 1..N for stable downstream handling.
  */
-export const sampleQuestionsFromBank = (bank: QuestionBank, count: number): Question[] => {
+export const sampleQuestionsFromBank = (
+  bank: QuestionBank,
+  count: number,
+  options: SampleOptions = {}
+): Question[] => {
   const pool = bank.questions;
   if (pool.length === 0) return [];
 
-  if (pool.length <= count) {
-    if (pool.length < count) {
-      logger.warn(`Bank poolSize (${pool.length}) < requested count (${count}); returning entire bank`, 'questionBank.sampleQuestionsFromBank');
-    }
-    const indices = Array.from({ length: pool.length }, (_, i) => i);
-    for (let i = indices.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [indices[i], indices[j]] = [indices[j], indices[i]];
-    }
-    return indices.map((origIdx, k) => ({
-      ...pool[origIdx],
-      options: [...pool[origIdx].options],
-      id: k + 1,
-    }));
+  const take = Math.min(count, pool.length);
+  if (pool.length < count) {
+    logger.warn(`Bank poolSize (${pool.length}) < requested count (${count}); returning entire bank`, 'questionBank.sampleQuestionsFromBank');
   }
 
-  // Fisher-Yates partial shuffle: pick first `count` distinct indices
+  // Fisher-Yates partial shuffle: pick `take` distinct indices. When take ===
+  // pool.length this degenerates to a full shuffle of the whole bank.
   const indices = Array.from({ length: pool.length }, (_, i) => i);
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < take; i++) {
     const j = i + Math.floor(Math.random() * (indices.length - i));
     [indices[i], indices[j]] = [indices[j], indices[i]];
   }
-  return indices.slice(0, count).map((origIdx, k) => ({
+
+  const picked = indices.slice(0, take);
+  if (options.preserveOrder) picked.sort((a, b) => a - b);
+
+  return picked.map((origIdx, k) => ({
     ...pool[origIdx],
     options: [...pool[origIdx].options],
     id: k + 1,
