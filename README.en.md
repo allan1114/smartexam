@@ -72,7 +72,8 @@
 ### 🆕 Document Management & Reliability (Latest)
 - **📁 Saved Documents (skip re-upload)**: Every uploaded/pasted document is recorded in a "Saved Documents" list — re-open it from the Home page with one click, no re-upload needed
   - Text / pasted content: **fully restored**, works offline
-  - PDF / images: only the name and MIME type are stored (**not** the base64 bytes, to avoid blowing the localStorage quota); if the cached question bank is still present you can retake immediately, otherwise you're prompted to re-upload
+  - PDF / images: name and MIME type live in localStorage, **the file bytes live in IndexedDB** (no 5MB quota), so an uploaded PDF becomes a genuine reference document — re-open it from the home page without re-uploading, and questions can be re-extracted from the original file even after the cached question bank has been evicted
+  - Cap is ~19MB per file; over the cap, or on a browser without IndexedDB, it falls back to the previous behavior (metadata only) and prompts for a re-upload
   - Up to **20** documents are kept; the oldest is evicted beyond the cap
 - **📄 HTML Report Download**: After an exam, download a **self-contained HTML report** from the results page (inline CSS, zero external assets, opens offline, printable) containing every question, your answer, correct/incorrect status, the correct answer, explanation, document evidence quote, and overall score
 - **🎯 Guaranteed Question Count**: Ask for 40 questions and you get 40. The app generates and de-duplicates into the bank until the requested count is met; if the document genuinely can't yield enough, a clear message is shown instead of silently returning fewer

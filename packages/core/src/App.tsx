@@ -3,7 +3,7 @@ import { AppState, ExamConfig, Question, ExamResult, UserAnswer, DocumentSource 
 import { extractQuestionBank } from './services/geminiService';
 import { loadQuestionBank, saveQuestionBank, sampleQuestionsFromBank, deleteQuestionBank, appendToQuestionBank, CURRENT_EXTRACTOR_VERSION } from './utils/questionBank';
 import { generateUniqueId } from './utils/fileProcessor';
-import { saveDocument, listDocuments, loadDocument, deleteDocument, touchDocument, SavedDocument } from './utils/documentLibrary';
+import { saveDocument, saveDocumentFile, listDocuments, loadDocumentAsync, deleteDocument, touchDocument, SavedDocument } from './utils/documentLibrary';
 import { logger } from './utils/logger';
 import {
   saveExamSession,
@@ -113,14 +113,21 @@ const App: React.FC = () => {
     const saved = saveDocument(source);
     if (saved) setSavedDocuments(listDocuments());
     setCurrentState(AppState.SETUP);
+    // Keep an uploaded PDF/image as a real reference: its bytes go to IndexedDB
+    // so the document can be re-opened later without a re-upload. Deliberately
+    // not awaited — a slow write must not delay the setup screen.
+    if (saved && source.fileData) {
+      void saveDocumentFile(saved.hash, source.fileData).catch(() => {});
+    }
   }, []);
 
-  const handleSelectSavedDocument = useCallback((doc: SavedDocument) => {
-    const restored = loadDocument(doc.hash);
+  const handleSelectSavedDocument = useCallback(async (doc: SavedDocument) => {
+    const restored = await loadDocumentAsync(doc.hash);
     if (!restored) {
-      // File-kind docs intentionally don't store their bytes — ask to re-upload.
+      // Bytes absent: IndexedDB unavailable, file over the size cap, or the doc
+      // predates file persistence. Only then must the user re-upload.
       setError({
-        message: `「${doc.name}」是 PDF/圖片檔，為節省空間未儲存檔案內容，請重新上傳該檔案。`,
+        message: `「${doc.name}」的檔案內容未能還原（可能超出容量上限或瀏覽器不支援），請重新上傳該檔案。`,
         type: 'REUPLOAD_REQUIRED',
       });
       return;

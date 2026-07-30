@@ -143,8 +143,12 @@ flow):
 | `smart_exam_api_key`, `smart_exam_use_proxy`, `smart_exam_proxy_url` | API key + proxy config | — |
 | `theme` | Light/dark | — |
 
-Note: for PDF/image saved documents, only metadata (name/type) is stored — not
-the base64 bytes — to avoid blowing the localStorage quota.
+Note: for PDF/image saved documents, localStorage holds only the metadata
+(name/type) — the base64 bytes go to **IndexedDB** (`smartexam` DB,
+`documentFiles` store, see `utils/fileStore.ts`), which has no ~5MB quota. That
+is what lets an uploaded PDF be re-opened later without a re-upload. Files over
+`MAX_STORED_FILE_LEN` (~19MB of file), and browsers without IndexedDB, fall back
+to metadata-only and prompt for a re-upload.
 
 ## Conventions
 
