@@ -592,6 +592,19 @@ smartexam/
 
 Go to **⚙️ Settings → 📋 Log Level** and pick `DEBUG`, then open the browser DevTools Console to see step-by-step logs (model calls, fallback switches, question-bank access, etc.). Logs are tagged with their source, e.g. `geminiService.callWithFallback`, `questionBank.appendToQuestionBank`, to make tracing easy.
 
+### Verify against your own PDF
+
+To find out how many questions a specific PDF actually yields, whether extraction covered all of it, and whether anything was altered, run the check against your own file:
+
+```bash
+SMARTEXAM_PDF=/path/to/your-exam.pdf \
+GEMINI_API_KEY=your-key \
+SMARTEXAM_EXPECTED=120 \
+npx vitest run verifyPdf --root packages/core
+```
+
+It reports `caseType` (A = the document already contains questions, B = they were generated), how many questions were extracted, `extractionComplete`, any duplicates or malformed items, and whether the "load every question" path altered or reordered anything. `SMARTEXAM_EXPECTED` is optional and compares against the count you believe the PDF holds. The check skips itself (no API cost) unless both `SMARTEXAM_PDF` and `GEMINI_API_KEY` are set; `SMARTEXAM_MODEL` overrides the model.
+
 ### Common messages & fixes
 
 | Message / symptom | Cause | Fix |

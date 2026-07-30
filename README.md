@@ -614,6 +614,19 @@ smartexam/
 
 喺 **⚙️ 設置 → 📋 日誌級別** 揀 `DEBUG`,再開瀏覽器 DevTools Console 即可睇到逐步日誌（模型呼叫、備援切換、題庫存取等）。日誌帶有來源標籤,例如 `geminiService.callWithFallback`、`questionBank.appendToQuestionBank`,方便定位。
 
+### 用你自己嘅 PDF 做驗證
+
+想知「呢份 PDF 究竟抽到幾多題、係咪抽晒、有冇改動過」,可以直接對住你自己嘅檔案跑驗證：
+
+```bash
+SMARTEXAM_PDF=/path/to/your-exam.pdf \
+GEMINI_API_KEY=your-key \
+SMARTEXAM_EXPECTED=120 \
+npx vitest run verifyPdf --root packages/core
+```
+
+會報告：`caseType`（文件本身有題目 A／要生成 B）、實際抽到幾多題、`extractionComplete`、有冇重複／格式錯誤,以及「載入全部題目」路徑有冇改動或打亂次序。`SMARTEXAM_EXPECTED` 可選,填咗就會同你心目中嘅題數對比。冇設定 `SMARTEXAM_PDF` 同 `GEMINI_API_KEY` 時會自動跳過（唔會產生 API 費用）。可用 `SMARTEXAM_MODEL` 指定模型。
+
 ### 常見訊息與處理
 
 | 訊息／現象 | 成因 | 處理 |

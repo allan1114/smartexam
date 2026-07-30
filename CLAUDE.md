@@ -87,6 +87,7 @@ __tests__/             # Integration tests + per-module tests live beside code i
 | `npm test` | Run all tests (core + web) via Vitest |
 | `npm test -- --run` | Single non-watch run (what CI uses) |
 | `npm test -- <file>.test.ts` | Run one test file |
+| `SMARTEXAM_PDF=… GEMINI_API_KEY=… npx vitest run verifyPdf --root packages/core` | Verify a real PDF end-to-end (skipped without those env vars; makes billable calls) |
 | `npm run test:ui` | Vitest UI (web) |
 | `npm run type-check` | `tsc --noEmit` for web + desktop |
 | `npm run lint` | ESLint (web), `--max-warnings 0` |
