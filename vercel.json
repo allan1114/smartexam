@@ -1,6 +1,6 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "buildCommand": "VITE_BASE_PATH=/ npm run build:web",
+  "outputDirectory": "packages/web/dist",
   "framework": "vite",
   "rewrites": [
     {

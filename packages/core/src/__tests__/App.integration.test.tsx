@@ -17,46 +17,12 @@ vi.mock('../services/geminiService', () => ({
   })),
 }));
 
-// Mock localStorage
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
-
-  return {
-    getItem: (key: string) => store[key] || null,
-    setItem: (key: string, value: string) => {
-      store[key] = value.toString();
-    },
-    removeItem: (key: string) => {
-      delete store[key];
-    },
-    clear: () => {
-      store = {};
-    },
-  };
-})();
-
-Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock,
-});
-
-// Mock matchMedia
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: vi.fn().mockImplementation(query => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
+// localStorage and matchMedia are mocked globally by src/__tests__/setup.ts,
+// which vitest.config.ts loads for every suite.
 
 describe('App Integration Tests', () => {
   beforeEach(() => {
-    localStorageMock.clear();
+    localStorage.clear();
     vi.clearAllMocks();
   });
 
@@ -73,7 +39,7 @@ describe('App Integration Tests', () => {
   });
 
   it('should load theme from localStorage', () => {
-    localStorageMock.setItem('theme', 'dark');
+    localStorage.setItem('theme', 'dark');
     render(<App />);
 
     // Check if dark class is applied
@@ -104,16 +70,16 @@ describe('App Integration Tests', () => {
       },
     ];
 
-    localStorageMock.setItem('smart_exam_history', JSON.stringify(mockHistory));
+    localStorage.setItem('smart_exam_history', JSON.stringify(mockHistory));
     render(<App />);
 
     await waitFor(() => {
-      expect(localStorageMock.getItem('smart_exam_history')).toBeDefined();
+      expect(localStorage.getItem('smart_exam_history')).toBeDefined();
     });
   });
 
   it('should handle corrupted localStorage history gracefully', async () => {
-    localStorageMock.setItem('smart_exam_history', 'invalid json');
+    localStorage.setItem('smart_exam_history', 'invalid json');
 
     // Should not throw error
     expect(() => render(<App />)).not.toThrow();
@@ -133,9 +99,6 @@ describe('App Integration Tests', () => {
 
   it('should display Header component', () => {
     const { container } = render(<App />);
-    // Header should be present (it's always rendered)
-    const header = container.querySelector('header') || container.querySelector('[role="banner"]');
-    // If header exists, good. Otherwise check for common header elements
     const mainElement = container.querySelector('main');
     expect(mainElement).toBeInTheDocument();
   });
@@ -163,7 +126,7 @@ describe('App Integration Tests', () => {
   });
 
   it('should store theme preference to localStorage', async () => {
-    const { container } = render(<App />);
+    render(<App />);
 
     // Simulate theme toggle (button should exist)
     // Note: The actual theme toggle implementation is in Header component
@@ -172,7 +135,7 @@ describe('App Integration Tests', () => {
   });
 
   it('should handle empty history', async () => {
-    localStorageMock.setItem('smart_exam_history', JSON.stringify([]));
+    localStorage.setItem('smart_exam_history', JSON.stringify([]));
 
     expect(() => render(<App />)).not.toThrow();
   });
@@ -204,7 +167,7 @@ describe('App Integration Tests', () => {
       },
     ];
 
-    localStorageMock.setItem('smart_exam_history', JSON.stringify(malformedHistory as any));
+    localStorage.setItem('smart_exam_history', JSON.stringify(malformedHistory as any));
 
     expect(() => render(<App />)).not.toThrow();
   });

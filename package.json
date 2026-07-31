@@ -13,13 +13,20 @@
     "dev:electron": "cd packages/desktop && npm run electron-dev",
     "build:web": "cd packages/web && npm run build",
     "build:electron": "cd packages/desktop && npm run build",
-    "test": "cd packages/core && npm run test && cd ../web && npm run test",
+    "test": "npm run test --workspace packages/core",
+    "test:run": "npm run test:run --workspace packages/core",
     "test:ui": "cd packages/web && npm run test:ui",
-    "type-check": "cd packages/web && npm run type-check && cd ../desktop && npm run type-check",
-    "lint": "cd packages/web && npm run lint",
+    "type-check": "npm run type-check --workspace packages/core && npm run type-check --workspace packages/web && npm run type-check --workspace packages/desktop",
+    "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "clean": "rm -rf packages/*/dist packages/*/dist-electron node_modules/.vite",
-    "install:all": "npm install && npm install --workspace packages/core --workspace packages/web --workspace packages/desktop",
-    "deploy:pages": "npm run build:web && git add packages/web/dist -f && git commit -m 'Deploy to GitHub Pages' || true && git subtree push --prefix packages/web/dist origin gh-pages",
-    "deploy:pages:script": "bash scripts/deploy-github-pages.sh"
+    "install:all": "npm install && npm install --workspace packages/core --workspace packages/web --workspace packages/desktop"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.8.0",
+    "typescript-eslint": "^8.65.0"
   }
 }

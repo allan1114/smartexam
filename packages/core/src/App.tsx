@@ -30,6 +30,41 @@ import Settings from './components/Settings';
 import HelpModal from './components/HelpModal';
 
 
+/**
+ * Every history entry embeds its full `questions` array, so a single
+ * 400-question exam is ~1MB. Keeping 50 of those blew past the ~5MB
+ * localStorage quota, and because the write was one all-or-nothing setItem, the
+ * failure took the NEWEST result down with it — the user finished an exam and
+ * it silently never appeared in their history.
+ */
+const MAX_HISTORY_ENTRIES = 30;
+
+/**
+ * Write history, shedding the oldest entries until it fits. Mirrors the
+ * evict-oldest-and-retry approach `questionBank.persistBank` already uses.
+ * Returns the list actually persisted (never throws — history is best-effort).
+ */
+const persistHistory = (entries: ExamResult[]): void => {
+  let candidate = entries;
+  while (candidate.length > 0) {
+    try {
+      localStorage.setItem('smart_exam_history', JSON.stringify(candidate));
+      if (candidate.length < entries.length) {
+        logger.warn(
+          `Exam history trimmed ${entries.length} → ${candidate.length} entries to fit localStorage.`,
+          'App.persistHistory'
+        );
+      }
+      return;
+    } catch {
+      // Drop the oldest entry and try again — keeping the most recent results
+      // matters far more than keeping all of them.
+      candidate = candidate.slice(0, candidate.length - 1);
+    }
+  }
+  logger.warn('Failed to save exam history to localStorage', 'App.persistHistory');
+};
+
 const App: React.FC = () => {
   const [currentState, setCurrentState] = useState<AppState>(AppState.HOME);
   const [docSource, setDocSource] = useState<DocumentSource | null>(null);
@@ -204,7 +239,7 @@ const App: React.FC = () => {
 
       if (!bank) {
         const targetPoolSize = Math.max(examConfig.totalQuestions * 3, 30);
-        const { questions: bankQuestions, caseType, extractionComplete } = await extractQuestionBank(
+        const { questions: bankQuestions, caseType, extractionComplete, droppedCount } = await extractQuestionBank(
           docSource,
           targetPoolSize,
           examConfig.model,
@@ -225,6 +260,14 @@ const App: React.FC = () => {
         });
         bank = saved.bank;
         if (!saved.persisted) addWarning(storageWarningMsg);
+        // Malformed entries used to vanish without a trace, so a paper that came
+        // back short looked like an extraction that stopped early. Say so.
+        if (droppedCount > 0) {
+          addWarning(
+            `有 ${droppedCount} 條題目格式不完整（例如答案對唔上選項），已自動略過。` +
+              `如果題數比預期少，可按「Regenerate」重新抽取。`
+          );
+        }
       }
 
       // Extraction that stopped short (output cap, round cap, model early-stop)
@@ -341,12 +384,8 @@ const App: React.FC = () => {
     };
 
     setHistory(prev => {
-      const updated = [examResult, ...prev].slice(0, 50);
-      try {
-        localStorage.setItem('smart_exam_history', JSON.stringify(updated));
-      } catch (e) {
-        logger.warn("Failed to save exam history to localStorage", "App.finishExam", e);
-      }
+      const updated = [examResult, ...prev].slice(0, MAX_HISTORY_ENTRIES);
+      persistHistory(updated);
       return updated;
     });
 

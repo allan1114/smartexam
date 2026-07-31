@@ -29,19 +29,20 @@ jobs:
       - name: 🔧 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: 📦 Install dependencies
-        run: npm install
+        run: npm ci
 
+      # No continue-on-error: these gates hid a test suite that could not even
+      # start (no vitest config → node env → every React test crashed) and a
+      # type-check that had never covered packages/core.
       - name: 🔍 Type checking
         run: npm run type-check
-        continue-on-error: true
 
       - name: 🧪 Run tests
-        run: npm test -- --run
-        continue-on-error: true
+        run: npm run test:run
 
       - name: 🏗️ Build web app
         run: npm run build:web

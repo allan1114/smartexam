@@ -7,7 +7,10 @@ export default defineConfig(({ mode, command }) => {
     const env = loadEnv(mode, '.', 'VITE_');
 
     return {
-      base: '/smartexam/',
+      // GitHub Pages serves this as a project site under /smartexam/, but the
+      // same repo also deploys to Vercel at the domain root. Make it overridable
+      // (VITE_BASE_PATH=/ for Vercel) instead of hardcoding one target.
+      base: env.VITE_BASE_PATH || '/smartexam/',
       server: {
         port: 3000,
         // Only expose to localhost in development

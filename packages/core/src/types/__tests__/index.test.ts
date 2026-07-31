@@ -143,7 +143,7 @@ describe('Type definitions', () => {
         },
       };
       expect(source.fileData).toBeDefined();
-      expect(source.fileData.mimeType).toBe('application/pdf');
+      expect(source.fileData!.mimeType).toBe('application/pdf');
     });
 
     it('should accept both text and fileData', () => {

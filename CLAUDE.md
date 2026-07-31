@@ -30,17 +30,13 @@ scripts/      # deploy helpers
 .github/workflows/deploy-github-pages.yml   # CI: build + deploy to GitHub Pages
 ```
 
-### ⚠️ The root `/src` directory is STALE LEGACY — do not edit it
+### Source of truth: `packages/core/src/`
 
-There is a top-level `/src` folder that predates the monorepo migration. **It is
-not referenced by any build, test, or import.** The web app imports directly
-from core (`packages/web/src/index.tsx` → `import App from '../../core/src/App'`).
+Make all changes there. The web app imports core directly
+(`packages/web/src/index.tsx` → `import App from '../../core/src/App'`).
 
-- **Source of truth: `packages/core/src/`.** Make all changes there.
-- The root `/src` is older than `packages/core/src` (it's missing newer files
-  like `documentLibrary.ts`, `questionBank.ts`, `reportExport.ts`,
-  `SavedDocumentsList.tsx`). Treat it as dead code. Do not "sync" changes into
-  it, and prefer not to touch it at all unless explicitly asked to delete it.
+(The stale top-level `/src` copy that predated the monorepo migration has been
+deleted — don't recreate it.)
 
 ### Where the real code lives (`packages/core/src/`)
 
@@ -84,12 +80,12 @@ __tests__/             # Integration tests + per-module tests live beside code i
 | `npm run dev:electron` | Vite (5173) + Electron with hot reload |
 | `npm run build:web` | Production web build → `packages/web/dist/` |
 | `npm run build:electron` | Build desktop installers (.dmg / .exe / AppImage) |
-| `npm test` | Run all tests (core + web) via Vitest |
-| `npm test -- --run` | Single non-watch run (what CI uses) |
+| `npm test` | Run the test suite in watch mode (all tests live in core) |
+| `npm run test:run` | Single non-watch run (what CI uses) |
 | `npm test -- <file>.test.ts` | Run one test file |
 | `SMARTEXAM_PDF=… GEMINI_API_KEY=… npx vitest run verifyPdf --root packages/core` | Verify a real PDF end-to-end (skipped without those env vars; makes billable calls) |
 | `npm run test:ui` | Vitest UI (web) |
-| `npm run type-check` | `tsc --noEmit` for web + desktop |
+| `npm run type-check` | `tsc --noEmit` for core + web + desktop |
 | `npm run lint` | ESLint (web), `--max-warnings 0` |
 | `npm run clean` | Remove build artifacts |
 
@@ -129,7 +125,9 @@ The allowed-model list is duplicated and **must stay identical**:
 - `api/proxy-gemini.ts` → `allowedModels` array
 
 If you add/remove/rename a model, update **both**, or proxy-mode requests for
-that model will be rejected. `DEFAULT_MODEL` is `gemini-2.5-flash`.
+that model will be rejected. `DEFAULT_MODEL` is `gemini-2.5-flash`. A test in
+`constants/__tests__/models.test.ts` parses the proxy file and fails if the two
+lists diverge, so a missed edit is caught in CI rather than in production.
 
 ## localStorage namespaces
 
@@ -139,7 +137,7 @@ flow):
 | Key / prefix | Purpose | Cap |
 |---|---|---|
 | `smart_exam_doclib_index`, `smart_exam_doc_*` | Saved documents library | 20 docs |
-| `smart_exam_bank_index`, `smart_exam_bank_*` | Question-bank cache (retake / top-up) | 10 banks |
+| `smart_exam_bank_index`, `smart_exam_bank_*` | Question-bank cache (retake / top-up) | 5 banks |
 | `smart_exam_history` | Exam result history | — |
 | `smart_exam_api_key`, `smart_exam_use_proxy`, `smart_exam_proxy_url` | API key + proxy config | — |
 | `theme` | Light/dark | — |
@@ -148,7 +146,7 @@ Note: for PDF/image saved documents, localStorage holds only the metadata
 (name/type) — the base64 bytes go to **IndexedDB** (`smartexam` DB,
 `documentFiles` store, see `utils/fileStore.ts`), which has no ~5MB quota. That
 is what lets an uploaded PDF be re-opened later without a re-upload. Files over
-`MAX_STORED_FILE_LEN` (~19MB of file), and browsers without IndexedDB, fall back
+`MAX_STORED_FILE_LEN` (25MB base64 ≈ 18MB of file), and browsers without IndexedDB, fall back
 to metadata-only and prompt for a re-upload.
 
 ## Conventions

@@ -1,9 +1,23 @@
-import { vi } from 'vitest';
-import '@testing-library/jest-dom';
+import { vi, afterEach } from 'vitest';
+// The /vitest entry wires the matchers into vitest's `expect`. The bare
+// '@testing-library/jest-dom' import assumes a global `expect` (Jest) and
+// throws "expect is not defined" under vitest without `globals: true`.
+import '@testing-library/jest-dom/vitest';
+import { cleanup } from '@testing-library/react';
 
-// Mock window.matchMedia
+// Testing Library only auto-registers its cleanup when vitest runs with
+// `globals: true`. We keep explicit imports everywhere, so unmount between
+// tests here — otherwise every rendered tree stays in document.body and
+// queries fail with "Found multiple elements with the role ...".
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
+
+// jsdom has no matchMedia; App reads it during theme initialization.
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
+  configurable: true,
   value: vi.fn().mockImplementation(query => ({
     matches: false,
     media: query,
@@ -16,34 +30,10 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
-// Mock localStorage
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
-
-  return {
-    getItem: (key: string) => store[key] || null,
-    setItem: (key: string, value: string) => {
-      store[key] = value.toString();
-    },
-    removeItem: (key: string) => {
-      delete store[key];
-    },
-    clear: () => {
-      store = {};
-    },
-    get length() {
-      return Object.keys(store).length;
-    },
-    key: (index: number) => {
-      const keys = Object.keys(store);
-      return keys[index] || null;
-    },
-  };
-})();
-
-Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock,
-});
+// NOTE: localStorage is deliberately NOT mocked. jsdom supplies a real,
+// spec-compliant Storage, which is what lets tests spy on
+// `Storage.prototype.setItem` to simulate quota failures. Replacing it with a
+// plain object silently broke those spies.
 
 // Mock console methods to avoid noise in test output
 global.console = {

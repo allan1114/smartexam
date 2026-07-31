@@ -14,6 +14,10 @@ const shuffleInPlace = <T>(array: T[]): T[] => {
   return result;
 };
 
+/** Fisher-Yates over positions 0..n-1, so duplicate option TEXT can't collide. */
+const shuffledIndices = (length: number): number[] =>
+  shuffleInPlace(Array.from({ length }, (_, i) => i));
+
 /**
  * Create an identity mapping (no shuffle) - options stay in original order
  */
@@ -38,12 +42,13 @@ export const createOptionMapping = (
     return createIdentityMapping(questionId, originalOptions);
   }
 
-  const shuffledOptions = shuffleInPlace(originalOptions);
-
-  // Create index mapping: displayIndex -> originalIndex
+  // Shuffle POSITIONS, not values. Resolving each shuffled value back with
+  // `originalOptions.indexOf(option)` broke any question with two identical
+  // option strings (e.g. two options both "0"): both display slots resolved to
+  // the same original index, so one option was shown twice and another vanished
+  // from the paper entirely.
   const indexMap: Record<number, number> = {};
-  shuffledOptions.forEach((option, displayIdx) => {
-    const originalIdx = originalOptions.indexOf(option);
+  shuffledIndices(originalOptions.length).forEach((originalIdx, displayIdx) => {
     indexMap[displayIdx] = originalIdx;
   });
 
@@ -100,7 +105,7 @@ export const mapSelectedOptionToOriginal = (
 export const validateAnswer = (
   userSelectedOption: string,
   originalQuestion: OriginalQuestion,
-  mapping: OptionMapping
+  _mapping: OptionMapping
 ): boolean => {
   const originalCorrectAnswer = originalQuestion.correctAnswer;
 

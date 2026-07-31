@@ -156,11 +156,22 @@ export default async (req: VercelRequest, res: VercelResponse) => {
     }
 
     const data = await response.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    // Concatenate every text part — reading only parts[0] silently dropped the
+    // rest of a multi-part response, truncating large question banks.
+    const parts = data?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(parts)
+      ? parts.map((p: any) => (typeof p?.text === 'string' ? p.text : '')).join('')
+      : '';
 
     console.log(`✓ Gemini API call successful - Model: ${model}, Client: ${clientId}`);
 
-    return res.status(200).json({ text });
+    // finishReason must be forwarded: 'MAX_TOKENS' is how the client detects a
+    // response cut short and triggers a continuation round. Without it, proxy
+    // mode loses its primary truncation signal and stops extraction early.
+    return res.status(200).json({
+      text,
+      finishReason: data?.candidates?.[0]?.finishReason,
+    });
 
   } catch (error) {
     console.error('Proxy error:', error);

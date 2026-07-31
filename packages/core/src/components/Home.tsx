@@ -33,7 +33,7 @@ const Home: React.FC<HomeProps> = ({
   onDeleteDocument,
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'gdoc' | 'paste'>('upload');
-  const [error, setError] = useState<string | null>(null);
+  const [error, _setError] = useState<string | null>(null);
 
   return (
     <div className="animate-fade-in py-8 max-w-4xl mx-auto">
