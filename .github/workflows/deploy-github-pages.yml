@@ -5,6 +5,13 @@ on:
     branches:
       - main
       - master
+  # Also gate pull requests. Without this the type-check/test steps only ran
+  # AFTER a merge to main — too late to stop anything. The deploy job below is
+  # already guarded to push events, so PR runs build and test but never deploy.
+  pull_request:
+    branches:
+      - main
+      - master
   workflow_dispatch:  # 允許手動觸發
 
 permissions:
@@ -13,7 +20,9 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  # Scoped by ref so a PR check never queues behind (or blocks) a Pages deploy.
+  # Pushes to main still share one group, keeping deploys serialized.
+  group: "pages-${{ github.ref }}"
   cancel-in-progress: false
 
 jobs:
@@ -48,11 +57,13 @@ jobs:
         run: npm run build:web
 
       - name: 📁 Ensure SPA + Pages config (404 fallback + .nojekyll)
+        if: github.event_name != 'pull_request'
         run: |
           cp packages/web/dist/index.html packages/web/dist/404.html
           touch packages/web/dist/.nojekyll
 
       - name: 📤 Upload Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: './packages/web/dist'
