@@ -93,6 +93,11 @@ out
 .nuxt
 dist
 
+# Build output — these were previously force-added by the removed deploy:pages
+# script and drifted out of sync with source.
+dist-electron/
+/assets/
+
 # Gatsby files
 .cache/
 public

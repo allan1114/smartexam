@@ -12,7 +12,9 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.ts'),
+      // The COMPILED preload. Pointing at the .ts source meant Electron found
+      // no such file in dist-electron/, so window.electronAPI was undefined.
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },

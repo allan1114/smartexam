@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Question, UserAnswer } from '../../types';
-import { generatePerformanceAnalysis, PerformanceAnalysis } from '../../services/geminiService';
+import { Question, UserAnswer, PerformanceAnalysis } from '../../types';
+import { generatePerformanceAnalysis } from '../../services/geminiService';
 
 interface PerformanceAnalysisSectionProps {
   questions: Question[];

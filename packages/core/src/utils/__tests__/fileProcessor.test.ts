@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   extractGoogleDocId,
   generateUniqueId,
@@ -249,8 +249,9 @@ describe('fileProcessor utilities', () => {
       const file = new File(['content'], 'test.txt');
       // Mock FileReader error
       const originalFileReader = global.FileReader;
-      // @ts-ignore
+      // @ts-expect-error - deliberately replacing the global with a partial stub
       global.FileReader = class {
+        onerror?: (e: unknown) => void;
         readAsText() {
           setTimeout(() => {
             this.onerror?.(new Error('Read failed'));

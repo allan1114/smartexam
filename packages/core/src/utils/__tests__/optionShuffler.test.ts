@@ -210,4 +210,34 @@ describe('optionShuffler', () => {
       expect(JSON.stringify(mockOriginalQuestion)).toBe(originalQuestionCopy);
     });
   });
+
+  describe('duplicate option text', () => {
+    // Real exam papers repeat option strings ("0", "None of the above", …).
+    // Resolving shuffled values with `originalOptions.indexOf(option)` mapped
+    // both display slots to the same original index, so one option was rendered
+    // twice and another disappeared from the paper entirely.
+    const withDuplicates: OriginalQuestion = {
+      ...mockOriginalQuestion,
+      options: ['0', '5', '0', '7'],
+      correctAnswer: '5',
+    };
+
+    it('maps every display slot to a distinct original index', () => {
+      for (let i = 0; i < 50; i++) {
+        const mapping = createOptionMapping(withDuplicates.id, withDuplicates.options);
+        const targets = Object.values(mapping.indexMap);
+        expect(targets).toHaveLength(4);
+        expect(new Set(targets).size).toBe(4);
+        expect([...targets].sort()).toEqual([0, 1, 2, 3]);
+      }
+    });
+
+    it('preserves the full multiset of options after shuffling', () => {
+      for (let i = 0; i < 50; i++) {
+        const mapping = createOptionMapping(withDuplicates.id, withDuplicates.options);
+        const display = getDisplayQuestion(withDuplicates, mapping);
+        expect([...display.options].sort()).toEqual([...withDuplicates.options].sort());
+      }
+    });
+  });
 });

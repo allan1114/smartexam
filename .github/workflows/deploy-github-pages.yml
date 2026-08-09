@@ -5,6 +5,13 @@ on:
     branches:
       - main
       - master
+  # Also gate pull requests. Without this the type-check/test steps only ran
+  # AFTER a merge to main — too late to stop anything. The deploy job below is
+  # already guarded to push events, so PR runs build and test but never deploy.
+  pull_request:
+    branches:
+      - main
+      - master
   workflow_dispatch:  # 允許手動觸發
 
 permissions:
@@ -13,7 +20,9 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  # Scoped by ref so a PR check never queues behind (or blocks) a Pages deploy.
+  # Pushes to main still share one group, keeping deploys serialized.
+  group: "pages-${{ github.ref }}"
   cancel-in-progress: false
 
 jobs:
@@ -29,29 +38,32 @@ jobs:
       - name: 🔧 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: 📦 Install dependencies
-        run: npm install
+        run: npm ci
 
+      # No continue-on-error: these gates hid a test suite that could not even
+      # start (no vitest config → node env → every React test crashed) and a
+      # type-check that had never covered packages/core.
       - name: 🔍 Type checking
         run: npm run type-check
-        continue-on-error: true
 
       - name: 🧪 Run tests
-        run: npm test -- --run
-        continue-on-error: true
+        run: npm run test:run
 
       - name: 🏗️ Build web app
         run: npm run build:web
 
       - name: 📁 Ensure SPA + Pages config (404 fallback + .nojekyll)
+        if: github.event_name != 'pull_request'
         run: |
           cp packages/web/dist/index.html packages/web/dist/404.html
           touch packages/web/dist/.nojekyll
 
       - name: 📤 Upload Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: './packages/web/dist'

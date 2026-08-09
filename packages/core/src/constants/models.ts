@@ -94,16 +94,20 @@ const MODEL_UNAVAILABLE_PATTERNS = [
   'no such model',
   'does not exist',
   '404',
-  '400',
   'permission_denied',
   'permission denied',
 ];
 
 /**
  * True when the failure is because the chosen model id is invalid / unavailable
- * (e.g. a 400/404 "model not found"), as opposed to a transient overload. Such
+ * (e.g. a 404 "model not found"), as opposed to a transient overload. Such
  * errors are NOT fixed by retrying the same model, so the caller should fall
  * back to a known-good default model instead of surfacing a hard error.
+ *
+ * Deliberately does NOT match a bare '400': most 400s are malformed-request
+ * errors that a different model will reject identically, so treating them as
+ * "model unavailable" only burned a second doomed API call and buried the real
+ * error behind a MODEL_OVERLOADED message.
  */
 export const isModelUnavailableError = (error: unknown): boolean => {
   const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();

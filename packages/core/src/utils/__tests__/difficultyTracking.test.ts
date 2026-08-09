@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   loadPerformanceProfile,
   updatePerformanceProfile,
-  buildDifficultyMetrics,
   getQuestionsByDifficulty,
   createSmartRetakeOrder,
   getQuestionPerformance,

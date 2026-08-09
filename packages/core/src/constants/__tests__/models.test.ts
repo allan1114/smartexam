@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import {
   isModelUnavailableError,
   isOverloadError,
   getFallbackModel,
   getMaxOutputTokens,
   AI_MODELS,
+  ALLOWED_MODEL_IDS,
   DEFAULT_MODEL,
   DEFAULT_MAX_OUTPUT_TOKENS,
 } from '../models';
@@ -28,6 +32,17 @@ describe('models error classification', () => {
     it('does NOT treat plain overload errors as unavailable', () => {
       expect(isModelUnavailableError(new Error('The model is overloaded, please try again'))).toBe(false);
       expect(isModelUnavailableError(new Error('429 rate limit'))).toBe(false);
+    });
+
+    it('does NOT treat a bare 400 as a model problem', () => {
+      // A malformed request fails identically on a fallback model, so matching
+      // '400' only burned a second doomed call and buried the real error.
+      expect(
+        isModelUnavailableError(new Error('Gemini API Error: 400 Bad Request')),
+      ).toBe(false);
+      expect(
+        isModelUnavailableError(new Error('Invalid JSON payload received. Unknown name "role"')),
+      ).toBe(false);
     });
 
     it('handles non-Error inputs', () => {
@@ -68,6 +83,23 @@ describe('models error classification', () => {
 
     it('unknown model ids fall back to the conservative default', () => {
       expect(getMaxOutputTokens('someone-elses-model')).toBe(DEFAULT_MAX_OUTPUT_TOKENS);
+    });
+  });
+
+  describe('proxy allow-list stays in sync', () => {
+    it('api/proxy-gemini.ts allows exactly the catalog model ids', () => {
+      // The list is duplicated by necessity (the serverless function cannot
+      // import from packages/core). Nothing enforced the duplication, so adding
+      // a model to the catalog silently broke it for every proxy-mode user.
+      const here = dirname(fileURLToPath(import.meta.url));
+      const proxySrc = readFileSync(resolve(here, '../../../../../api/proxy-gemini.ts'), 'utf8');
+
+      const block = proxySrc.match(/const allowedModels = \[([\s\S]*?)\];/);
+      expect(block, 'could not locate allowedModels in api/proxy-gemini.ts').not.toBeNull();
+
+      const proxyIds = Array.from(block![1].matchAll(/'([^']+)'/g)).map(m => m[1]);
+
+      expect([...proxyIds].sort()).toEqual([...ALLOWED_MODEL_IDS].sort());
     });
   });
 });

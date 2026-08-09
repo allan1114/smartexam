@@ -1,9 +1,9 @@
 
-import { Type, GenerateContentResponse } from "@google/genai";
+import { Type } from "@google/genai";
 import { Question, AnswerFormat, DocumentSource, UserAnswer, PerformanceAnalysis, CaseType } from "../types";
 import { cleanJsonResponse, cleanJsonResponseDetailed, normalizeGeneratedQuestion } from "../utils/fileProcessor";
 import { questionDedupKey } from "../utils/questionBank";
-import { ApiError, isRetryableError } from "../utils/errors";
+import { isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import { DEFAULT_MODEL, getFallbackModel, getMaxOutputTokens, isOverloadError, isModelUnavailableError } from "../constants/models";
 
@@ -32,8 +32,34 @@ export const INLINE_MAX_BASE64_LEN = 15 * 1024 * 1024;
 // mode cannot carry a big inlined file at all — surface a clear error instead.
 export const PROXY_MAX_BASE64_LEN = 4 * 1024 * 1024;
 
-const extractText = (data: any): string =>
-  data?.candidates?.[0]?.content?.parts?.[0]?.text ?? data?.text ?? '';
+/**
+ * Pull the model's text out of a Gemini response. Concatenates EVERY text part
+ * — reading only `parts[0]` silently discarded everything after the first part,
+ * which truncates a large JSON question bank whenever the model splits its
+ * answer across parts.
+ */
+const extractText = (data: any): string => {
+  const parts = data?.candidates?.[0]?.content?.parts;
+  if (Array.isArray(parts)) {
+    const joined = parts
+      .map((p: any) => (typeof p?.text === 'string' ? p.text : ''))
+      .join('');
+    if (joined) return joined;
+  }
+  return data?.text ?? '';
+};
+
+/**
+ * Gemini's REST `contents` field is `repeated Content` — a bare object is
+ * rejected. Callers in this file pass either an array of role-tagged messages
+ * or a single `{ parts: [...] }` turn, so normalize both to an array exactly
+ * once, and use it on the direct AND proxy paths (the proxy previously
+ * forwarded the raw object straight through).
+ */
+const toContentsArray = (contents: any): any[] => {
+  if (Array.isArray(contents)) return contents;
+  return [{ role: 'user', parts: contents?.parts || [{ text: JSON.stringify(contents) }] }];
+};
 
 /**
  * Pull the finish reason out of a Gemini response. 'MAX_TOKENS' means the model
@@ -148,8 +174,11 @@ const resolveFileParts = async (
 
   if (useProxy) {
     if (data.length > PROXY_MAX_BASE64_LEN) {
+      // base64 inflates the raw file by ~33%, so quote the RAW file size the
+      // user actually sees, derived from the constant rather than hardcoded.
+      const rawLimitMb = Math.floor((PROXY_MAX_BASE64_LEN * 3) / 4 / 1024 / 1024);
       throw new Error(
-        'FILE_TOO_LARGE_FOR_PROXY: 此檔案太大，無法經 Backend Proxy 上傳 (上限約 3MB)。請喺 ⚙️ Settings 關閉 Proxy 改用直接 API key 模式，即可支援大型 PDF。'
+        `FILE_TOO_LARGE_FOR_PROXY: 此檔案太大，無法經 Backend Proxy 上傳 (上限約 ${rawLimitMb}MB)。請喺 ⚙️ Settings 關閉 Proxy 改用直接 API key 模式，即可支援大型 PDF。`
       );
     }
     return [{ inlineData: source.fileData }];
@@ -335,9 +364,7 @@ const callGeminiViaProxy = async (
 
   if (!useProxy && apiKey) {
     const { systemInstruction, responseMimeType, temperature, seed, responseSchema, maxOutputTokens } = config || {};
-    const contentsArray = Array.isArray(contents)
-      ? contents
-      : [{ role: 'user', parts: contents.parts || [{ text: JSON.stringify(contents) }] }];
+    const contentsArray = toContentsArray(contents);
 
     const body: any = {
       contents: contentsArray,
@@ -374,7 +401,7 @@ const callGeminiViaProxy = async (
   const resp = await fetchWithTimeout(proxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, contents, config: forwardConfig }),
+    body: JSON.stringify({ model, contents: toContentsArray(contents), config: forwardConfig }),
   }, timeoutMs);
 
   if (!resp.ok) {
@@ -424,7 +451,10 @@ const callWithFallback = async <T>(
           'smart_exam_last_fallback',
           JSON.stringify({ from: primaryModel, to: fallback, at: Date.now() })
         );
-      } catch {}
+      } catch {
+        // sessionStorage unavailable (private mode / quota) — the UI hint is
+        // cosmetic, never let it break a successful fallback call.
+      }
       return result;
     } catch (fallbackErr) {
       const originalMsg = err instanceof Error ? err.message : String(err);
@@ -496,7 +526,13 @@ export const extractQuestionBank = async (
   contentRange?: string,
   temperature: number = 0.3,
   onProgress?: (progress: ExtractionProgress) => void
-): Promise<{ questions: Question[]; caseType: CaseType; extractionComplete: boolean }> => {
+): Promise<{
+  questions: Question[];
+  caseType: CaseType;
+  extractionComplete: boolean;
+  /** Questions the model emitted but that failed validation and were discarded. */
+  droppedCount: number;
+}> => {
   const finalModelName = getModelName(modelName);
 
   const rangeText = contentRange ? ` ONLY focus on the following section: "${contentRange}".` : ' Scan the ENTIRE document length to extract questions covering all sections.';
@@ -737,9 +773,19 @@ ${positioning}
     );
   };
 
+  /** Outcome of one extraction round (initial or continuation). */
+  interface RoundResult {
+    questions: Question[];
+    caseType: CaseType;
+    wasTruncated: boolean;
+    reportedTotal?: number;
+    /** Emitted-but-malformed questions discarded by normalizeGeneratedQuestion. */
+    dropped: number;
+  }
+
   const runRound = async (
     continuation?: Continuation
-  ): Promise<{ questions: Question[]; caseType: CaseType; wasTruncated: boolean; reportedTotal?: number }> => {
+  ): Promise<RoundResult> => {
     // Heavy (file/large-doc) calls already use a long deadline; don't let the
     // inner retry loop multiply a slow request into several doomed attempts.
     // Transient overload is still handled by callWithFallback (model fallback)
@@ -779,17 +825,29 @@ ${positioning}
       .map((q: unknown, idx: number) => normalizeGeneratedQuestion(q, idx))
       .filter((q): q is Question => q !== null);
 
+    // A question the model emitted but that failed validation used to disappear
+    // with no trace. Count them so the caller can tell the user their paper is
+    // short because entries were malformed, not because extraction stopped.
+    const dropped = questions.length - cleaned.length;
+    if (dropped > 0) {
+      logger.warn(
+        `${dropped} of ${questions.length} extracted questions were malformed and dropped.`,
+        'geminiService.extractQuestionBank'
+      );
+    }
+
     return {
       questions: cleaned,
       caseType,
       wasTruncated: wasRepaired || response.finishReason === 'MAX_TOKENS',
       reportedTotal: sanitizeReportedTotal(parsedObj.totalQuestionCount),
+      dropped,
     };
   };
 
   try {
     // ---- Round 1 (with the pre-existing reduced-pool recovery) ----
-    let first: { questions: Question[]; caseType: CaseType; wasTruncated: boolean; reportedTotal?: number };
+    let first: RoundResult;
     try {
       first = await runRound();
     } catch (firstErr: unknown) {
@@ -843,6 +901,8 @@ ${positioning}
     const firstAdded = addRound(first.questions);
     const caseType = first.caseType;
     let wasTruncated = first.wasTruncated;
+    /** Malformed questions discarded across every round, reported to the caller. */
+    let droppedTotal = first.dropped;
     // The model's own count of questions in the whole document. This is what
     // lets us catch VOLUNTARY early stops: a clean (non-truncated) response
     // that still covers fewer questions than the document holds.
@@ -866,6 +926,11 @@ ${positioning}
     const stillShortOfTotal = () =>
       reportedTotal !== undefined && merged.length < reportedTotal;
     let ordinalFallbackUsed = false;
+    // Whether the FIRST dry probe was itself cut off by the output cap. A probe
+    // that ran out of room proves nothing about coverage (the model restarted
+    // from the top and never reached the anchor), so it must not be accepted as
+    // evidence that the document is exhausted.
+    let firstDryProbeTruncated = false;
     // A clean finish is NOT trusted on its own for CASE A: models routinely
     // stop after ~60-70 questions of a 500-question document with a clean STOP
     // while reporting (or omitting) a totalQuestionCount that matches only what
@@ -883,7 +948,7 @@ ${positioning}
       round <= MAX_CONTINUATION_ROUNDS
     ) {
       advanceTextWindow(anchor);
-      let result: { questions: Question[]; caseType: CaseType; wasTruncated: boolean; reportedTotal?: number };
+      let result: RoundResult;
       try {
         result = await runRound({
           extractedCount: merged.length,
@@ -913,6 +978,7 @@ ${positioning}
         break;
       }
 
+      droppedTotal += result.dropped;
       const addedThisRound = addRound(result.questions);
       const netNew = addedThisRound.length;
       // Models sometimes re-report the total per round; keep the largest sane value.
@@ -933,6 +999,7 @@ ${positioning}
         // ordinal positioning ("skip the first N questions") before giving up.
         if (!ordinalFallbackUsed) {
           ordinalFallbackUsed = true;
+          firstDryProbeTruncated = result.wasTruncated;
           logger.warn(
             `Continuation round ${round} added no new questions — retrying once with ordinal positioning.`,
             'geminiService.extractQuestionBank'
@@ -949,7 +1016,18 @@ ${positioning}
         // PDF (the last productive round almost always ends on MAX_TOKENS), and
         // a warning that fires on healthy extractions is a warning users learn
         // to ignore. Still short of the reported total ⇒ stays incomplete.
-        if (!stillShortOfTotal() && reportedTotal !== undefined) wasTruncated = false;
+        //
+        // BUT the probes only count as evidence when they finished CLEANLY. A
+        // probe cut off by the output cap re-emitted known questions until it
+        // ran out of room — it never got past the anchor, so it says nothing
+        // about what remains. Accepting a truncated probe is how a model that
+        // lowballs 'totalQuestionCount' (reporting only what it managed to emit)
+        // got a half-extracted bank flagged COMPLETE, with the green
+        // "已抽取整份文件" banner over a fraction of the paper.
+        const probesFinishedCleanly = !firstDryProbeTruncated && !result.wasTruncated;
+        if (probesFinishedCleanly && !stillShortOfTotal() && reportedTotal !== undefined) {
+          wasTruncated = false;
+        }
         logger.warn(`Continuation round ${round} added no new questions — stopping.`, 'geminiService.extractQuestionBank');
         break;
       }
@@ -959,6 +1037,7 @@ ${positioning}
       anchor = anchorOf(addedThisRound, result.questions);
       wasTruncated = result.wasTruncated;
       ordinalFallbackUsed = false;
+      firstDryProbeTruncated = false;
     }
 
     const extractionComplete =
@@ -975,6 +1054,7 @@ ${positioning}
       questions: merged.map((q, idx) => ({ ...q, id: idx + 1 })),
       caseType,
       extractionComplete,
+      droppedCount: droppedTotal,
     };
   } catch (error: unknown) {
     const errorObj = error instanceof Error ? error : new Error(String(error));
@@ -1058,9 +1138,13 @@ export const getChatbotResponse = async (
   ];
 
   const apiCall = async (modelOverride: string) => {
+    // Pass the message array straight through. Wrapping it as `{ parts: contents }`
+    // produced contents[0].parts = [{role, parts}], which are not valid Part
+    // fields — Gemini answered 400 on every single chat message, and the catch
+    // below turned that into the "連線不穩定" fallback.
     return await callGeminiViaProxy(
       modelOverride,
-      { parts: contents },
+      contents,
       {
         temperature: 0.7,
         systemInstruction: `You are an expert tutor. Helping a student with the following material: ${context.substring(0, 30000)}`,

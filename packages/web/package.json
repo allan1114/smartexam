@@ -12,7 +12,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint ../.. --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
     "@smartexam/core": "*",
@@ -21,7 +21,7 @@
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^15.0.0",
+    "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.0",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.3",

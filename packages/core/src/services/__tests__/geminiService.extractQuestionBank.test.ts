@@ -404,4 +404,92 @@ describe('extractQuestionBank — continuation rounds', () => {
     expect(ordinalText).toContain('SKIP the FIRST 2 questions');
     expect(result.questions).toHaveLength(4);
   });
+
+  it('reports INCOMPLETE when the dry probes were themselves cut off by the output cap', async () => {
+    // The silent-under-extraction case: the model emits a partial bank, is cut
+    // off by MAX_TOKENS, and reports a total equal to what it managed to emit.
+    // Both probes then re-emit known questions and are ALSO cut off — they never
+    // reached the anchor, so they are no evidence the document is exhausted.
+    // Accepting them flagged a half-extracted 400-question paper as COMPLETE.
+    const emitted = makeQuestions({ idStart: 1, count: 5 });
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(emitted, { finishReason: 'MAX_TOKENS', total: 5 }))
+      .mockResolvedValueOnce(makeBankResponse(emitted, { finishReason: 'MAX_TOKENS', total: 5 }))
+      .mockResolvedValueOnce(makeBankResponse(emitted, { finishReason: 'MAX_TOKENS', total: 5 }));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    expect(result.questions).toHaveLength(5);
+    expect(result.extractionComplete).toBe(false);
+  });
+
+  it('still reports COMPLETE when the dry probes finish cleanly', async () => {
+    // Same shape, but the probes finish cleanly — the model had room to continue
+    // and produced nothing new. That IS evidence, so a healthy bank must not be
+    // flagged incomplete (a warning that fires on good extractions gets ignored).
+    const emitted = makeQuestions({ idStart: 1, count: 5 });
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(emitted, { finishReason: 'MAX_TOKENS', total: 5 }))
+      .mockResolvedValueOnce(makeBankResponse(emitted, { total: 5 }))
+      .mockResolvedValueOnce(makeBankResponse(emitted, { total: 5 }));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    expect(result.questions).toHaveLength(5);
+    expect(result.extractionComplete).toBe(true);
+  });
+
+  it('reports how many malformed questions were dropped', async () => {
+    const good = makeQuestions({ idStart: 1, count: 2 });
+    // No options → normalizeGeneratedQuestion returns null and drops it.
+    const bad = { id: 3, question: 'Broken question with no options', type: 'single', options: [], correctAnswer: 'x', explanation: '', sourceQuote: '', topic: 'T' };
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse([...good, bad]))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    expect(result.questions).toHaveLength(2);
+    expect(result.droppedCount).toBe(1);
+  });
+
+  it('concatenates every text part of a multi-part response', async () => {
+    // Gemini may split one JSON payload across several parts. Reading only
+    // parts[0] truncated the bank to whatever landed in the first chunk.
+    const json = JSON.stringify({ caseType: 'A', questions: makeQuestions({ idStart: 1, count: 3 }) });
+    const mid = Math.floor(json.length / 2);
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: json.slice(0, mid) }, { text: json.slice(mid) }] } }],
+        }),
+      } as unknown as Response)
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    expect(result.questions).toHaveLength(3);
+  });
+
+  it('sends contents as an ARRAY in proxy mode', async () => {
+    // Gemini's REST `contents` is `repeated Content`; the proxy used to forward
+    // the raw `{ parts: [...] }` object, which the API rejects.
+    localStorage.setItem('smart_exam_use_proxy', 'true');
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ text: JSON.stringify({ caseType: 'A', questions: makeQuestions({ idStart: 1, count: 2 }) }) }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ text: JSON.stringify({ caseType: 'A', questions: [] }) }),
+      } as unknown as Response);
+
+    await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash');
+
+    const body = getRequestBody(fetchMock, 0);
+    expect(Array.isArray(body.contents)).toBe(true);
+    expect(body.contents[0].parts[0].text).toContain('DOCUMENT CONTENT');
+  });
 });

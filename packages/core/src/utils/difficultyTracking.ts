@@ -9,7 +9,6 @@ import {
 import { logger } from './logger';
 
 const PERFORMANCE_STORAGE_PREFIX = 'smart_exam_performance_';
-const MAX_PROFILES = 50; // Store performance for up to 50 different documents
 
 /**
  * Calculate difficulty level based on success rate
@@ -86,7 +85,11 @@ export const loadPerformanceProfile = (documentHash: string): UserPerformancePro
 
     const stored = JSON.parse(data);
     // Convert Map back from JSON
-    const questionMetrics = new Map(Object.entries(stored.questionMetrics).map(([k, v]) => [Number(k), v]));
+    const questionMetrics = new Map<number, QuestionPerformance>(
+      Object.entries(stored.questionMetrics ?? {}).map(
+        ([k, v]) => [Number(k), v as QuestionPerformance] as const
+      )
+    );
 
     return {
       documentHash: stored.documentHash,
@@ -185,11 +188,15 @@ export const updatePerformanceProfile = (
  * Get questions sorted by difficulty level (hardest first)
  * Level 3: For smart retakes - prioritize struggling questions
  */
-export const getQuestionsByDifficulty = (
+export const getQuestionsByDifficulty = <T extends Question>(
   profile: UserPerformanceProfile,
-  allQuestions: Question[]
-): { hard: Question[]; medium: Question[]; easy: Question[] } => {
-  const result = { hard: [] as Question[], medium: [] as Question[], easy: [] as Question[] };
+  allQuestions: T[]
+): { hard: T[]; medium: T[]; easy: T[] } => {
+  // Generic so callers keep their concrete question type: the smart-retake path
+  // feeds in OriginalQuestion[] (carrying `_locked`) and hands the result to
+  // getDisplayQuestions, which requires OriginalQuestion[]. Widening to
+  // Question[] here silently stripped that marker from the type.
+  const result = { hard: [] as T[], medium: [] as T[], easy: [] as T[] };
 
   const metricsMap = profile.difficultyDistribution;
 
@@ -216,11 +223,11 @@ export const getQuestionsByDifficulty = (
  * Level 3: Prioritize hard questions (< 50%), then medium, then easy
  * This helps users focus on their weak areas
  */
-export const createSmartRetakeOrder = (
+export const createSmartRetakeOrder = <T extends Question>(
   profile: UserPerformanceProfile,
-  allQuestions: Question[],
+  allQuestions: T[],
   maxQuestions?: number
-): Question[] => {
+): T[] => {
   const { hard, medium, easy } = getQuestionsByDifficulty(profile, allQuestions);
 
   // Prioritize hard, then medium, then easy
@@ -233,7 +240,7 @@ export const createSmartRetakeOrder = (
     const mediumTarget = Math.ceil(maxQuestions * 0.3);
     const easyTarget = maxQuestions - hardTarget - mediumTarget;
 
-    const selected: Question[] = [];
+    const selected: T[] = [];
     let hardCount = 0, mediumCount = 0, easyCount = 0;
 
     // First pass: take desired amounts from each difficulty
@@ -252,8 +259,8 @@ export const createSmartRetakeOrder = (
 
     // Second pass: if we don't have enough, fill remaining slots
     if (selected.length < maxQuestions) {
-      const remaining = maxQuestions - selected.length;
       // Fill from whichever pool has items left, prioritizing hard > medium > easy
+      // (each loop breaks on selected.length, so no separate counter is needed).
       for (const q of hard.slice(hardCount)) {
         if (selected.length >= maxQuestions) break;
         selected.push(q);

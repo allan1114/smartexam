@@ -9,17 +9,12 @@ import {
 } from '../documentLibrary';
 import { generateDocumentHash } from '../examStorage';
 
-// Minimal in-memory localStorage so these tests run in the node test env.
-class MemoryStorage {
-  private store = new Map<string, string>();
-  getItem(k: string) { return this.store.has(k) ? this.store.get(k)! : null; }
-  setItem(k: string, v: string) { this.store.set(k, String(v)); }
-  removeItem(k: string) { this.store.delete(k); }
-  clear() { this.store.clear(); }
-}
-
+// jsdom supplies a real localStorage (see src/__tests__/setup.ts); just reset
+// it between tests. The previous MemoryStorage shim existed only because the
+// suite used to run in the node environment, and assigning over jsdom's
+// read-only `localStorage` accessor throws.
 beforeEach(() => {
-  (globalThis as any).localStorage = new MemoryStorage();
+  localStorage.clear();
 });
 
 describe('documentLibrary', () => {
