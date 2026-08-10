@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppState, ExamConfig, Question, ExamResult, UserAnswer, DocumentSource } from './types';
 import { extractQuestionBank } from './services/geminiService';
-import { loadQuestionBank, saveQuestionBank, sampleQuestionsFromBank, deleteQuestionBank, appendToQuestionBank, CURRENT_EXTRACTOR_VERSION } from './utils/questionBank';
+import { loadQuestionBank, saveQuestionBank, sampleQuestionsFromBank, deleteQuestionBank, appendToQuestionBank, questionBankKey, CURRENT_EXTRACTOR_VERSION } from './utils/questionBank';
 import { generateUniqueId } from './utils/fileProcessor';
 import { saveDocument, saveDocumentFile, listDocuments, loadDocumentAsync, deleteDocument, touchDocument, SavedDocument } from './utils/documentLibrary';
 import { logger } from './utils/logger';
@@ -215,12 +215,15 @@ const App: React.FC = () => {
       // Generate document hash for cache lookup (also used by sessionStorage layer)
       const docHash = generateDocumentHash(docSource.text, docSource.fileData);
       setDocumentHash(docHash);
+      // Banks are cached per document AND per Focus Range: the same document
+      // yields a different pool for "Question 179-250" than for the whole paper.
+      const bankKey = questionBankKey(docHash, examConfig.contentRange);
 
       // 1) Try to reuse an existing question bank for this document.
       //    The bank is built ONCE per document — subsequent exams sample from it
       //    locally with Math.random(), guaranteeing variety across attempts and
       //    zero additional Gemini calls.
-      let bank = loadQuestionBank(docHash);
+      let bank = loadQuestionBank(bankKey);
 
       // CASE A banks built by an OLDER extractor pipeline are rebuilt once:
       // older versions silently froze large documents at a fraction of their
@@ -230,10 +233,10 @@ const App: React.FC = () => {
       // the user can still force one via 重新生成題庫.
       if (bank && bank.caseType === 'A' && (bank.extractorVersion ?? 0) < CURRENT_EXTRACTOR_VERSION) {
         logger.info(
-          `CASE A bank for ${docHash} was built by extractor v${bank.extractorVersion ?? 0} (${bank.questions.length} questions) — rebuilding with v${CURRENT_EXTRACTOR_VERSION}.`,
+          `CASE A bank for ${bankKey} was built by extractor v${bank.extractorVersion ?? 0} (${bank.questions.length} questions) — rebuilding with v${CURRENT_EXTRACTOR_VERSION}.`,
           'App.startExam'
         );
-        deleteQuestionBank(docHash);
+        deleteQuestionBank(bankKey);
         bank = null;
       }
 
@@ -252,7 +255,7 @@ const App: React.FC = () => {
           throw new Error("NO_QUESTIONS_FOUND: AI failed to extract any valid questions from the document.");
         }
         const saved = saveQuestionBank({
-          documentHash: docHash,
+          documentHash: bankKey,
           questions: bankQuestions,
           caseType,
           modelUsed: examConfig.model,
@@ -302,7 +305,7 @@ const App: React.FC = () => {
             examConfig.contentRange,
             examConfig.temperature ?? 0.3
           );
-          const appended = extra && extra.length > 0 ? appendToQuestionBank(docHash, extra) : null;
+          const appended = extra && extra.length > 0 ? appendToQuestionBank(bankKey, extra) : null;
           if (appended?.bank) {
             bank = appended.bank;
             if (!appended.persisted) addWarning(storageWarningMsg);
@@ -564,6 +567,7 @@ const App: React.FC = () => {
     if (error.type === 'API_LIMIT') advice = "The server is busy. Please wait a few moments.";
     if (error.type === 'SAFETY_BLOCK') advice = "The content was rejected by the AI safety filters.";
     if (error.type === 'NOT_ENOUGH_QUESTIONS') advice = "請在考試設定中將題目數量調低，或改用內容更豐富的文件。";
+    if (error.type === 'NO_QUESTIONS_IN_RANGE') advice = "清空「Focus Range」可抽取整份文件，或改用文件中真實存在的題號範圍（例如 1-50）。";
     if (error.type === 'REUPLOAD_REQUIRED') advice = "切換到「Upload File」分頁重新上傳該 PDF/圖片即可。";
 
     return (
@@ -573,7 +577,7 @@ const App: React.FC = () => {
         </div>
         <div>
           <h4 className="font-black text-red-900 dark:text-red-300 text-sm uppercase tracking-wider mb-1">
-            {error.type.replace('_', ' ')}
+            {error.type.replace(/_/g, ' ')}
           </h4>
           <p className="text-red-700 dark:text-red-400 font-medium text-sm leading-relaxed mb-2">
             {error.message}

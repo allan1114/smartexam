@@ -142,6 +142,14 @@ flow):
 | `smart_exam_api_key`, `smart_exam_use_proxy`, `smart_exam_proxy_url` | API key + proxy config | — |
 | `theme` | Light/dark | — |
 
+Bank keys come from `questionBankKey(docHash, contentRange)`: the plain document
+hash when no Focus Range is set, `<docHash>~r<rangeHash>` when one is. A
+range-limited bank holds a different pool from the whole paper, so it must never
+be served in its place — pass the bank key (not the raw doc hash) to
+`loadQuestionBank` / `saveQuestionBank` / `appendToQuestionBank` /
+`deleteQuestionBank`. Exam sessions, the document library and difficulty
+tracking stay keyed on the raw document hash.
+
 Note: for PDF/image saved documents, localStorage holds only the metadata
 (name/type) — the base64 bytes go to **IndexedDB** (`smartexam` DB,
 `documentFiles` store, see `utils/fileStore.ts`), which has no ~5MB quota. That

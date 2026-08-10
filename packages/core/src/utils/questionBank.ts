@@ -19,6 +19,25 @@ export const CURRENT_EXTRACTOR_VERSION = 3;
 // document library and exam history.
 const MAX_BANKS = 5;
 
+/**
+ * Cache identity of a bank. A Focus Range yields a DIFFERENT bank from the same
+ * document — it holds only that slice of the paper — so the range has to be part
+ * of the key. Keyed on the document hash alone, setting or changing Focus Range
+ * silently served whichever bank was built first and the requested range was
+ * never honored (and a range-limited bank was later served as if it were the
+ * whole document).
+ */
+export const questionBankKey = (documentHash: string, contentRange?: string): string => {
+  const normalized = (contentRange ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized) return documentHash;
+  let hash = 5381;
+  for (let i = 0; i < normalized.length; i++) {
+    hash = ((hash << 5) + hash) ^ normalized.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return `${documentHash}~r${Math.abs(hash).toString(36)}`;
+};
+
 const deepCloneAsLocked = (questions: Question[]): OriginalQuestion[] =>
   questions.map(q => ({ ...q, options: [...q.options], _locked: true as const }));
 
