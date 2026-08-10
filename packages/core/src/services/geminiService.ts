@@ -518,6 +518,41 @@ const sanitizeReportedTotal = (v: unknown): number | undefined => {
   return Number.isFinite(n) && n > 0 && n <= 5000 ? n : undefined;
 };
 
+/** A range of QUESTION NUMBERS parsed out of the free-text Focus Range field. */
+export interface QuestionRange {
+  start: number;
+  end: number;
+}
+
+/**
+ * Recognize a question-number range in the Focus Range input — "179-250",
+ * "Q179-Q250", "Question 179 to 250", "第179-250題".
+ *
+ * A bare "ONLY focus on the following section: '179-250'" is not something a
+ * model can act on reliably: it has no idea whether that means pages, chapters
+ * or question numbers, and on a long paper it answers with an empty list. A
+ * recognized range instead becomes explicit skip/stop instructions AND an upper
+ * bound on how many questions the range can possibly yield.
+ *
+ * Page / chapter / section ranges are deliberately NOT matched — they address a
+ * different axis of the document and keep the original free-text handling.
+ */
+export const parseQuestionRange = (contentRange?: string): QuestionRange | null => {
+  const text = contentRange?.trim();
+  if (!text) return null;
+  if (/\b(pages?|pp?\.|chapters?|ch\.|sections?|units?|lessons?|parts?|slides?)\b/i.test(text)) return null;
+  if (/[頁章節課節篇]/.test(text)) return null;
+
+  const match = text.match(/(\d{1,4})\s*(?:-|–|—|~|至|到|\bto\b|\bthrough\b)\s*(?:q(?:uestion)?s?\.?\s*#?\s*)?(\d{1,4})/i);
+  if (!match) return null;
+
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
+  if (start < 1 || end < start) return null;
+  return { start, end };
+};
+
 export const extractQuestionBank = async (
   source: DocumentSource,
   targetPoolSize: number = 30,
@@ -535,7 +570,23 @@ export const extractQuestionBank = async (
 }> => {
   const finalModelName = getModelName(modelName);
 
-  const rangeText = contentRange ? ` ONLY focus on the following section: "${contentRange}".` : ' Scan the ENTIRE document length to extract questions covering all sections.';
+  // A Focus Range naming QUESTION NUMBERS ("Question 179-250") is turned into
+  // explicit skip/stop instructions; anything else (pages, chapters, free text)
+  // keeps the descriptive form.
+  const questionRange = parseQuestionRange(contentRange);
+  /** How many questions the range can possibly contain — an upper bound on the total. */
+  const rangeSize = questionRange ? questionRange.end - questionRange.start + 1 : undefined;
+
+  const rangeText = questionRange
+    ? ` EXTRACT ONLY the questions NUMBERED ${questionRange.start} THROUGH ${questionRange.end} (inclusive), using the document's own question numbering.
+        ▸ These questions are NOT at the beginning of the document — read forward past everything before question ${questionRange.start} without emitting it.
+        ▸ Emit NO question numbered below ${questionRange.start} or above ${questionRange.end}.
+        ▸ If the questions carry no numbers, count them in document order and take the ${questionRange.start}th through ${questionRange.end}th question.
+        ▸ If the document ends before question ${questionRange.end}, return everything up to the last question that exists — do NOT return an empty list just because the range is only partly present.
+        ▸ 'totalQuestionCount' MUST be the number of questions INSIDE THIS RANGE (at most ${rangeSize}), NOT the number in the whole document.`
+    : contentRange
+      ? ` ONLY focus on the following section: "${contentRange}". If that exact wording is not found in the document, use the closest matching content instead of returning nothing.`
+      : ' Scan the ENTIRE document length to extract questions covering all sections.';
 
   // Long pasted/text documents are sent through a sliding window: round 1 sees
   // the first 100k chars, and continuation rounds recenter the window on the
@@ -621,11 +672,18 @@ export const extractQuestionBank = async (
   }
 
   const buildContinuationBlock = (c: Continuation): string => {
+    const scope = questionRange ? `range ${questionRange.start}-${questionRange.end}` : 'document';
     const totalLine = c.totalCount
-      ? `\n        The document contains approximately ${c.totalCount} questions in total; ${c.extractedCount} have been extracted so far — ${Math.max(0, c.totalCount - c.extractedCount)} remain. Keep extracting until ALL are covered.`
+      ? `\n        The ${scope} contains approximately ${c.totalCount} questions in total; ${c.extractedCount} have been extracted so far — ${Math.max(0, c.totalCount - c.extractedCount)} remain. Keep extracting until ALL are covered.`
       : '';
+    // Ordinal positioning counts from the start of the REQUESTED RANGE, not from
+    // the start of the document: "skip the first N" would send the model back to
+    // question 1 of the paper whenever a Focus Range is active.
+    const ordinalPositioning = questionRange
+      ? `        ▸ RESUME at the question NUMBERED ${questionRange.start + c.extractedCount} and continue through ${questionRange.end}. Do NOT re-emit any question numbered below ${questionRange.start + c.extractedCount}.`
+      : `        ▸ SKIP the FIRST ${c.extractedCount} questions of the document (in document order) WITHOUT re-emitting them, then extract question #${c.extractedCount + 1} onwards.`;
     const positioning = c.useOrdinal
-      ? `        ▸ SKIP the FIRST ${c.extractedCount} questions of the document (in document order) WITHOUT re-emitting them, then extract question #${c.extractedCount + 1} onwards.`
+      ? ordinalPositioning
       : `        The LAST question already extracted is (verbatim):
         "${c.anchor.question.substring(0, 300)}"
         with options: ${c.anchor.options.slice(0, 5).map(o => `"${o.substring(0, 80)}"`).join(', ')}
@@ -640,7 +698,7 @@ export const extractQuestionBank = async (
 ${positioning}
         ▸ Number the new questions starting at id ${c.extractedCount + 1}.
         ▸ Emit AS MANY of the remaining questions as fit in this response — do NOT stop after a handful.
-        ▸ If NO questions remain after that point (the document is fully extracted), return an EMPTY 'questions' array — do NOT re-emit questions already extracted.
+        ▸ If NO questions remain after that point (the ${scope} is fully extracted${questionRange ? `, i.e. you have reached question ${questionRange.end} or the end of the document` : ''}), return an EMPTY 'questions' array — do NOT re-emit questions already extracted.
         ▸ Keep 'caseType' identical to the previous rounds ('A').
         All other extraction rules above still apply.`;
   };
@@ -836,20 +894,54 @@ ${positioning}
       );
     }
 
+    // Under a Focus Range the model routinely reports the WHOLE document's
+    // question count regardless of what it was asked for. Left unclamped that
+    // total makes stillShortOfTotal() permanently true, so extraction burns
+    // every continuation round chasing questions the range can never yield and
+    // then reports the (complete) range as incomplete.
+    const modelTotal = sanitizeReportedTotal(parsedObj.totalQuestionCount);
+    const reportedTotal =
+      modelTotal !== undefined && rangeSize !== undefined ? Math.min(modelTotal, rangeSize) : modelTotal;
+
     return {
       questions: cleaned,
       caseType,
       wasTruncated: wasRepaired || response.finishReason === 'MAX_TOKENS',
-      reportedTotal: sanitizeReportedTotal(parsedObj.totalQuestionCount),
+      reportedTotal,
       dropped,
     };
+  };
+
+  /**
+   * Round 1, sliding the text window forward when it comes back empty.
+   *
+   * Long pasted documents are sent 100k chars at a time, so a Focus Range that
+   * points deep into the paper ("Question 179-250") simply is not inside the
+   * first window: the model correctly returns nothing, and that used to surface
+   * as a fatal NO_QUESTIONS even though the requested range was still ahead of
+   * the cursor. Advance the window and look again before giving up.
+   */
+  const runInitialRound = async (): Promise<RoundResult> => {
+    for (;;) {
+      try {
+        return await runRound();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes('NO_QUESTIONS') || !hasMoreText()) throw err;
+        windowStart = windowStart + MAX_TEXT_LENGTH - 5000;
+        logger.warn(
+          `Initial round found no questions in the current text window — advancing to offset ${windowStart}.`,
+          'geminiService.extractQuestionBank'
+        );
+      }
+    }
   };
 
   try {
     // ---- Round 1 (with the pre-existing reduced-pool recovery) ----
     let first: RoundResult;
     try {
-      first = await runRound();
+      first = await runInitialRound();
     } catch (firstErr: unknown) {
       // A truncated/over-large response → PARSING_ERROR or EMPTY_RESPONSE. A
       // request that ran out of time → NETWORK_TIMEOUT; a smaller pool generates
@@ -865,7 +957,7 @@ ${positioning}
           'geminiService.extractQuestionBank'
         );
         effectivePoolSize = reduced;
-        first = await runRound();
+        first = await runInitialRound();
       } else {
         throw firstErr;
       }
@@ -1063,6 +1155,17 @@ ${positioning}
 
     if (msg.includes('Rpc failed') || msg.includes('Code 6')) {
       throw new Error(`NETWORK_TIMEOUT: 連線至 AI 伺服器時發生 RPC 錯誤 (Code 6)。請嘗試：1. 減少題目數量 2. 稍後再試一次。`);
+    }
+
+    // "No questions were extracted" is baffling when the document obviously has
+    // questions — the real cause is almost always a Focus Range that doesn't
+    // match the document. Name the range instead of blaming the document.
+    if (msg.includes('NO_QUESTIONS') && contentRange) {
+      throw new Error(
+        `NO_QUESTIONS_IN_RANGE: 焦點範圍「${contentRange}」在文件中找唔到任何題目。` +
+          `請確認呢個範圍真係存在（例如文件的題目編號是否去到 ${questionRange ? questionRange.end : '該範圍'}），` +
+          `或者清空 Focus Range 再試一次。`
+      );
     }
 
     throw new Error(`GENERATION_FAILED: ${msg}`);
