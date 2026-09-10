@@ -1,15 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { AI_MODELS, DEFAULT_MODEL } from '../constants/models';
+import { MINIMAX_DEFAULT_MODEL, MINIMAX_DEFAULT_URL, MINIMAX_TEXT_MODEL } from '../constants/minimax';
 
 interface SettingsProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-// MiniMax (international) defaults. Kept here so the provider config stays fully
-// separate from the Google/Gemini settings.
-const MINIMAX_DEFAULT_URL = 'https://api.minimax.io/v1/chat/completions';
-const MINIMAX_DEFAULT_MODEL = 'MiniMax-Text-01';
 
 const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const [provider, setProvider] = useState<'google' | 'minimax'>('google');
@@ -150,7 +146,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
             </select>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
               {provider === 'minimax'
-                ? 'MiniMax 模式使用下方獨立設定（不影響 Google 設定）。注意：MiniMax 暫不支援直接讀取 PDF／圖片，請用文字內容。'
+                ? 'MiniMax 模式使用下方獨立設定（不影響 Google 設定）。圖片同 PDF 都支援：PDF 會喺瀏覽器逐頁轉成圖片再交俾 vision 模型，所以要用 vision 模型（如 MiniMax-VL-01），而且頁數有上限。整份大 PDF 仍然建議用 Google 模型。'
                 : '預設使用 Google Gemini。揀 MiniMax 可改用 MiniMax 國際版模型。'}
             </p>
           </div>
@@ -205,7 +201,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                   className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
                 />
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  例如：<code>MiniMax-Text-01</code>。請填入你帳戶可用的 MiniMax 模型名稱。
+                  預設 <code>{MINIMAX_DEFAULT_MODEL}</code>（vision 模型，可讀圖片同 PDF）。
+                  <code>{MINIMAX_TEXT_MODEL}</code> 係純文字模型，<strong>睇唔到圖片</strong>，
+                  只適合貼上文字內容時使用。
                 </p>
               </div>
 

@@ -598,6 +598,9 @@ const App: React.FC = () => {
     if (error.type === 'NO_QUESTIONS_IN_RANGE') advice = "清空「Focus Range」可抽取整份文件，或改用文件中真實存在的題號範圍（例如 1-50）。";
     if (error.type === 'NO_QUESTIONS_IN_DOCUMENT') advice = "「原文抽取」只會逐字複製文件本身已有的題目，絕不自創。若這份文件是學習材料（筆記／課本／簡報）而非試卷，請在考試設定改選「AI 生成」。";
     if (error.type === 'REUPLOAD_REQUIRED') advice = "切換到「Upload File」分頁重新上傳該 PDF/圖片即可。";
+    if (error.type === 'MINIMAX_UNSUPPORTED_FILE') advice = "MiniMax 只讀得到圖片同 PDF。請改用 Google 模型（支援更多格式），或用「Manual Paste」貼上文字。";
+    if (error.type === 'MINIMAX_PDF_TOO_MANY_PAGES') advice = "MiniMax 要將 PDF 逐頁轉成圖片，頁數太多請求會過大。請在 ⚙️ Settings 改用 Google 模型（可直接讀取整份 PDF），或用「Focus Range」分段處理。";
+    if (error.type === 'PDF_RENDER_FAILED') advice = "瀏覽器無法將 PDF 轉成圖片。請改用 Google 模型（可直接讀取 PDF），或重新整理頁面再試。";
 
     return (
       <div className="mb-6 p-5 bg-red-50 border-l-4 border-red-500 rounded-r-xl shadow-sm animate-slide-up flex items-start space-x-4 dark:bg-red-900/20 dark:border-red-600">
