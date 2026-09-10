@@ -8,12 +8,22 @@ interface ExamSetupProps {
   onStart: (config: ExamConfig) => void;
   docHash?: string | null;
   onRegenerateBank?: (docHash: string) => void;
+  /**
+   * The source is an uploaded PDF/image rather than pasted text. Used only to
+   * pick the default question source — an uploaded file is far more often a
+   * paper to reproduce than material to study.
+   */
+  isFileSource?: boolean;
 }
 
-const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBank }) => {
+const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBank, isFileSource }) => {
   const [examName, setExamName] = useState('');
   const [mode, setMode] = useState<ExamMode>('MOCK');
   const [order, setOrder] = useState<QuestionOrder>('SEQUENTIAL');
+  // Which source the questions come from. Made an explicit either/or rather
+  // than a default-off checkbox: silently guessing wrong is the failure this
+  // setting exists to remove.
+  const [referenceMode, setReferenceMode] = useState<boolean>(isFileSource === true);
   const [answerFormat, setAnswerFormat] = useState('AUTO');
   const [duration, setDuration] = useState(60);
   const [questionCount, setQuestionCount] = useState(10);
@@ -64,17 +74,65 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
       durationMinutes: duration,
       totalQuestions: questionCount,
       model: selectedModel,
-      questionOrder: order,
+      // Reference mode reproduces the paper: every question, document order.
+      // Pinned here as well as in App so a saved config replays identically.
+      questionOrder: referenceMode ? 'SEQUENTIAL' : order,
       answerFormat: answerFormat as AnswerFormat,
       contentRange: contentRange.trim() || undefined,
       temperature,
-      useAllQuestions
+      useAllQuestions: referenceMode ? true : useAllQuestions,
+      referenceMode
     });
   };
 
   return (
     <div className="max-w-2xl mx-auto bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-8 animate-fade-in transition-colors">
       <h2 className="text-3xl font-bold mb-8 text-center text-slate-900 dark:text-white tracking-tight">Configure Your Session</h2>
+
+      {/* Question source — the first and most consequential choice. */}
+      <div className="mb-8">
+        <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">
+          題目來源 · Question Source
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            {
+              value: true,
+              title: '📄 原文抽取',
+              subtitle: '文件本身有題目',
+              detail: '逐字複製文件入面每一題同答案，絕不自創。'
+            },
+            {
+              value: false,
+              title: '✨ AI 生成',
+              subtitle: '學習材料',
+              detail: '根據筆記／課本內容由 AI 出題。'
+            }
+          ].map((opt) => (
+            <button
+              key={String(opt.value)}
+              type="button"
+              onClick={() => setReferenceMode(opt.value)}
+              aria-pressed={referenceMode === opt.value}
+              className={`p-4 rounded-xl border-2 text-left transition-all ${
+                referenceMode === opt.value
+                  ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30'
+                  : 'border-slate-100 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+              }`}
+            >
+              <span className="block font-bold text-sm text-slate-900 dark:text-white">{opt.title}</span>
+              <span className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">{opt.subtitle}</span>
+              <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 leading-snug">{opt.detail}</span>
+            </button>
+          ))}
+        </div>
+        {referenceMode && (
+          <p className="mt-3 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 leading-snug">
+            原文模式：載入文件全部題目、依原本次序、選項次序不變。
+            若文件入面搵唔到現成題目，會直接報錯而唔會自創題目。
+          </p>
+        )}
+      </div>
 
       {bankInfo && (
         <div className="mb-6 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 flex items-start justify-between gap-4">
@@ -85,6 +143,12 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
                 {bankInfo.extractionComplete === false
                   ? '⚠️ 抽取未完成 — 題庫可能未包含文件全部題目，建議按 Regenerate 重試。'
                   : '✅ 已抽取整份文件的題目，可用「Use every question」原封不動載入全部題目。'}
+              </p>
+            )}
+            {bankInfo.caseType === 'B' && referenceMode && (
+              <p className="text-xs mt-1 font-bold text-rose-700 dark:text-rose-300">
+                ⚠️ 呢個題庫係 AI 生成（CASE B），唔係由文件逐字抽取。
+                開始考試時會重新以原文模式抽取一次；若文件本身冇現成題目，會直接報錯。
               </p>
             )}
             <p className="text-xs mt-1 opacity-80">Each new exam will sample a different subset locally — no extra AI calls. Click <em>Regenerate</em> to re-analyze the document.</p>
@@ -114,7 +178,25 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
           </div>
         </div>
 
-        {/* Question Count & Order */}
+        {/* Question Count & Order — both are fixed by reference mode, so the
+            controls are replaced by a statement of what will happen rather
+            than left enabled and quietly ignored. */}
+        {referenceMode ? (
+          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
+            <p className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-2">
+              題目數量與次序
+            </p>
+            <p className="text-sm font-bold text-slate-900 dark:text-white">
+              文件全部題目
+              {bankInfo?.caseType === 'A' && `（目前題庫：${bankInfo.poolSize} 題）`}
+              ，依文件原本次序
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 leading-snug">
+              原文模式唔會抽樣，亦唔會打亂題目或選項次序。想自選題數或隨機出題，
+              請喺上面改揀「✨ AI 生成」。
+            </p>
+          </div>
+        ) : (
         <div className="grid grid-cols-2 gap-8">
           <div>
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">
@@ -165,6 +247,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
             </select>
           </div>
         </div>
+        )}
 
         {/* Model Selection */}
         <div>

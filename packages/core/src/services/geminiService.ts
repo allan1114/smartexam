@@ -509,6 +509,26 @@ export interface ExtractionProgress {
   total?: number;
 }
 
+/** Non-positional extraction switches. Kept as an object so this list can grow. */
+export interface ExtractionOptions {
+  /**
+   * Transcribe only — never author. See `ExamConfig.referenceMode`. The model
+   * is given no CASE B branch, temperature is forced to 0, and a document with
+   * no pre-written questions raises NO_QUESTIONS_IN_DOCUMENT.
+   */
+  referenceMode?: boolean;
+}
+
+/**
+ * Reference mode's terminal verdict: the document holds nothing to transcribe.
+ * Raised both by the post-round-1 gate (the model classified the document as
+ * study material) and by the catch below (extraction came back empty).
+ */
+const NO_QUESTIONS_IN_DOCUMENT_ERROR =
+  'NO_QUESTIONS_IN_DOCUMENT: 呢份文件入面搵唔到現成嘅題目。' +
+  '原文題庫模式只會逐字抽取文件本身嘅題目，唔會自創題目。' +
+  '請確認上傳咗正確嘅試卷檔案，或者喺考試設定改用「AI 生成」模式。';
+
 /** How many continuation rounds may follow the initial extraction call. */
 const MAX_CONTINUATION_ROUNDS = 11;
 
@@ -560,7 +580,8 @@ export const extractQuestionBank = async (
   answerFormat: AnswerFormat = 'AUTO',
   contentRange?: string,
   temperature: number = 0.3,
-  onProgress?: (progress: ExtractionProgress) => void
+  onProgress?: (progress: ExtractionProgress) => void,
+  options?: ExtractionOptions
 ): Promise<{
   questions: Question[];
   caseType: CaseType;
@@ -569,6 +590,13 @@ export const extractQuestionBank = async (
   droppedCount: number;
 }> => {
   const finalModelName = getModelName(modelName);
+
+  // Reference mode: the document is the paper and the only source. The model
+  // never sees the CASE B branch, and creative sampling is switched off — a
+  // transcription task has exactly one correct output, so any temperature
+  // above 0 only buys drift in wording the user asked us to preserve.
+  const referenceMode = options?.referenceMode === true;
+  const effectiveTemperature = referenceMode ? 0 : temperature;
 
   // A Focus Range naming QUESTION NUMBERS ("Question 179-250") is turned into
   // explicit skip/stop instructions; anything else (pages, chapters, free text)
@@ -703,6 +731,68 @@ ${positioning}
         All other extraction rules above still apply.`;
   };
 
+  /**
+   * STEP 1 + STEP 2 of the system instruction.
+   *
+   * The normal build asks the model to classify the document and then either
+   * transcribe (CASE A) or author (CASE B). Reference mode drops the fork
+   * entirely: there is no generate branch to fall into, so a misread document
+   * comes back empty and is rejected by the caller rather than silently
+   * answered with invented questions.
+   *
+   * Built per call because `effectivePoolSize` shrinks on the reduced-pool retry.
+   */
+  const buildExtractionDirective = (): string => {
+    const transcriptionRules = `        ▸ FIRST, COUNT every question in the ENTIRE document (scan to the very end) and set 'totalQuestionCount' to that number — even if you cannot output them all in this response.
+        ▸ Extract EVERY SINGLE question present in the document. Do NOT impose a maximum count. If the document contains 50 questions, return 50. If 500, return 500.
+        ▸ If there are more questions than fit in one response, output as many complete questions as possible IN DOCUMENT ORDER and stop cleanly — you will be asked to CONTINUE in a follow-up request. NEVER skip, sample, or summarize questions to make them fit.
+        ▸ You MUST copy the question text CHARACTER-FOR-CHARACTER. Do not paraphrase, reword, summarize, simplify, fix typos, translate, or "improve" anything.
+        ▸ You MUST copy each option CHARACTER-FOR-CHARACTER. Preserve exact wording, punctuation, capitalization, numbers, units, and ordering.
+        ▸ You MUST copy the correct answer EXACTLY as it appears in the document (look for an answer key, answer line, bolded option, or marked answer). If the document does not indicate the correct answer, choose the option whose text matches the document most accurately and put that EXACT option text in 'correctAnswer'.
+        ▸ Do NOT invent additional options. If the source has 3 options, return 3. If 5, return 5.
+        ▸ Treat Markdown syntax (**, *, _, #, \`, lists) as PLAIN TEXT to be ignored — extract the underlying text content, not the markup.
+        ▸ The 'correctAnswer' field MUST be one of the strings inside the 'options' array — copy/paste exactly.`;
+
+    if (referenceMode) {
+      return `
+        ============================================================
+        STEP 1 — TRANSCRIBE ONLY. DO NOT AUTHOR.
+        ============================================================
+        This document IS an exam paper, and it is your ONLY source. You are a
+        transcriber, not an author.
+        ▸ You MUST NOT generate, invent, compose, or "fill in" any question. Not one.
+        ▸ You MUST NOT add a question that is not already written in the document.
+        ▸ Set 'caseType' to 'A'.
+        ▸ If — and ONLY if — the document contains NO pre-written questions at all
+          (it is prose, notes, slides, or a textbook), return an EMPTY 'questions'
+          array and set 'caseType' to 'B'. Returning nothing is CORRECT in that
+          case. Fabricating questions to avoid an empty answer is a FAILURE.
+
+        ============================================================
+        STEP 2 — EXTRACT EVERY QUESTION, WORD FOR WORD
+        ============================================================
+${transcriptionRules}`;
+    }
+
+    return `
+        ============================================================
+        STEP 1 — CLASSIFY THE DOCUMENT (set 'caseType' in the response)
+        ============================================================
+        CASE A — The document ALREADY CONTAINS exam questions (numbered items, "Q1", "1.", multiple-choice options A/B/C/D, true/false, etc.).
+        CASE B — The document is STUDY MATERIAL (notes, textbook, article, slides) without pre-written questions.
+
+        ============================================================
+        STEP 2 — EXTRACT / GENERATE
+        ============================================================
+        If CASE A:
+${transcriptionRules}
+
+        If CASE B:
+        ▸ Generate exactly ${effectivePoolSize} distinct questions strictly grounded in the document's text. Cover the ENTIRE document — do not cluster around a few sections.
+        ▸ Each option must reflect content actually present in the document; do not fabricate facts.
+        ▸ The 'correctAnswer' must be the verbatim text of one of the 'options'.`;
+  };
+
   const apiCall = async (modelOverride: string, continuation?: Continuation) => {
     const textContext = currentTextContext();
     return await callGeminiViaProxy(
@@ -717,32 +807,7 @@ ${positioning}
         systemInstruction: `You are a professional exam compiler. Your job is to FAITHFULLY transcribe questions from the source document — never to invent, rephrase, or improve them.
 
         TASK: Build a question BANK from the provided document.${rangeText}
-
-        ============================================================
-        STEP 1 — CLASSIFY THE DOCUMENT (set 'caseType' in the response)
-        ============================================================
-        CASE A — The document ALREADY CONTAINS exam questions (numbered items, "Q1", "1.", multiple-choice options A/B/C/D, true/false, etc.).
-        CASE B — The document is STUDY MATERIAL (notes, textbook, article, slides) without pre-written questions.
-
-        ============================================================
-        STEP 2 — EXTRACT / GENERATE
-        ============================================================
-        If CASE A:
-        ▸ FIRST, COUNT every question in the ENTIRE document (scan to the very end) and set 'totalQuestionCount' to that number — even if you cannot output them all in this response.
-        ▸ Extract EVERY SINGLE question present in the document. Do NOT impose a maximum count. If the document contains 50 questions, return 50. If 500, return 500.
-        ▸ If there are more questions than fit in one response, output as many complete questions as possible IN DOCUMENT ORDER and stop cleanly — you will be asked to CONTINUE in a follow-up request. NEVER skip, sample, or summarize questions to make them fit.
-        ▸ You MUST copy the question text CHARACTER-FOR-CHARACTER. Do not paraphrase, reword, summarize, simplify, fix typos, translate, or "improve" anything.
-        ▸ You MUST copy each option CHARACTER-FOR-CHARACTER. Preserve exact wording, punctuation, capitalization, numbers, units, and ordering.
-        ▸ You MUST copy the correct answer EXACTLY as it appears in the document (look for an answer key, answer line, bolded option, or marked answer). If the document does not indicate the correct answer, choose the option whose text matches the document most accurately and put that EXACT option text in 'correctAnswer'.
-        ▸ Do NOT invent additional options. If the source has 3 options, return 3. If 5, return 5.
-        ▸ Treat Markdown syntax (**, *, _, #, \`, lists) as PLAIN TEXT to be ignored — extract the underlying text content, not the markup.
-        ▸ The 'correctAnswer' field MUST be one of the strings inside the 'options' array — copy/paste exactly.
-
-        If CASE B:
-        ▸ Generate exactly ${effectivePoolSize} distinct questions strictly grounded in the document's text. Cover the ENTIRE document — do not cluster around a few sections.
-        ▸ Each option must reflect content actually present in the document; do not fabricate facts.
-        ▸ The 'correctAnswer' must be the verbatim text of one of the 'options'.
-
+${buildExtractionDirective()}
         ============================================================
         STEP 3 — QUESTION TYPE (set 'type' on every question)
         ============================================================
@@ -772,7 +837,7 @@ ${positioning}
         Each question must have: id, question, type, options, correctAnswer, explanation, sourceQuote, topic — plus 'correctAnswers' for 'multiple', 'pairs' for 'matching', and 'blanks' for 'dropdown'.
         The 'correctAnswer' string MUST match one of the 'options' strings exactly (character-for-character).${continuation ? buildContinuationBlock(continuation) : ''}`,
         responseMimeType: "application/json",
-        temperature,
+        temperature: effectiveTemperature,
         // Request the model's full output ceiling so a big CASE A bank carries
         // as many questions per response as the model allows. Google only —
         // MiniMax keeps its own default (its model ids aren't in our catalog).
@@ -961,6 +1026,18 @@ ${positioning}
       } else {
         throw firstErr;
       }
+    }
+
+    // Reference mode's one hard gate. It sits HERE, not inside runRound, so the
+    // sliding-window recovery in runInitialRound still gets to advance past an
+    // empty first window before we call the document questionless.
+    //
+    // Everything downstream assumes CASE A, so a 'B' verdict — the model's way
+    // of saying "there are no questions written here" — must stop the run. The
+    // alternative is the exact failure this mode exists to prevent: handing the
+    // user a paper the AI wrote itself.
+    if (referenceMode && (first.caseType !== 'A' || first.questions.length === 0)) {
+      throw new Error(NO_QUESTIONS_IN_DOCUMENT_ERROR);
     }
 
     // ---- Merge state shared across rounds ----
@@ -1157,6 +1234,10 @@ ${positioning}
       throw new Error(`NETWORK_TIMEOUT: 連線至 AI 伺服器時發生 RPC 錯誤 (Code 6)。請嘗試：1. 減少題目數量 2. 稍後再試一次。`);
     }
 
+    // Already the precise diagnosis — re-wrapping it would bury the error type
+    // the UI keys its advice off (and the range branch below would swallow it).
+    if (msg.startsWith('NO_QUESTIONS_IN_DOCUMENT')) throw errorObj;
+
     // "No questions were extracted" is baffling when the document obviously has
     // questions — the real cause is almost always a Focus Range that doesn't
     // match the document. Name the range instead of blaming the document.
@@ -1166,6 +1247,12 @@ ${positioning}
           `請確認呢個範圍真係存在（例如文件的題目編號是否去到 ${questionRange ? questionRange.end : '該範圍'}），` +
           `或者清空 Focus Range 再試一次。`
       );
+    }
+
+    // Reference mode never reaches the generate branch, so an empty extraction
+    // means exactly one thing: this document has no questions to copy.
+    if (referenceMode && msg.includes('NO_QUESTIONS')) {
+      throw new Error(NO_QUESTIONS_IN_DOCUMENT_ERROR);
     }
 
     throw new Error(`GENERATION_FAILED: ${msg}`);

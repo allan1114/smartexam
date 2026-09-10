@@ -75,6 +75,17 @@ export interface ExamConfig {
    * NOT_ENOUGH_QUESTIONS guard, since the bank size IS the target.
    */
   useAllQuestions?: boolean;
+  /**
+   * Reference mode — the uploaded document IS the paper, and the ONLY source.
+   *
+   * Extraction is transcription-only: the model is never offered the CASE B
+   * "generate questions" branch, temperature is pinned to 0, and a document
+   * that holds no pre-written questions fails with NO_QUESTIONS_IN_DOCUMENT
+   * instead of quietly authoring a bank. Consumption is equally fixed: every
+   * question, in document order, with option order untouched — regardless of
+   * `useAllQuestions` and `questionOrder`.
+   */
+  referenceMode?: boolean;
   model: string;
   questionOrder: QuestionOrder;
   answerFormat: AnswerFormat;

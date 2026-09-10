@@ -117,6 +117,35 @@ Resilience features already built in — preserve them when editing:
   until the requested count is met, or a clear `NOT_ENOUGH_QUESTIONS` error is
   shown.
 
+### Reference mode — transcribe only, never author
+
+`ExamConfig.referenceMode` (the **原文抽取 / Question Source** choice in
+`ExamSetup`) makes the uploaded document the only source. It is a hard
+guarantee, not a hint, and each piece of it matters:
+
+- `extractQuestionBank(..., { referenceMode: true })` swaps the prompt's
+  STEP 1/STEP 2 block (`buildExtractionDirective()`) for a transcription-only
+  directive. **The CASE B "generate N questions" branch is not in the prompt at
+  all** — there is no fork for a misread document to fall into.
+- Temperature is pinned to `0`, overriding the Settings slider. Transcription
+  has one correct output; anything above 0 only buys wording drift.
+- After round 1, a `caseType` other than `'A'` (or an empty bank) throws
+  `NO_QUESTIONS_IN_DOCUMENT` instead of returning an AI-written bank. The gate
+  sits *after* `runInitialRound()` so the sliding-window recovery still runs.
+  The catch block maps a generic `NO_QUESTIONS` to the same error, and lets an
+  already-typed `NO_QUESTIONS_IN_DOCUMENT` through unwrapped — note that the
+  `NO_QUESTIONS_IN_RANGE` branch matches on `includes('NO_QUESTIONS')` and
+  would otherwise swallow it.
+- `App.startExam` discards a cached CASE B bank, skips the top-up loop
+  (topping up means asking the AI to author the shortfall), forces
+  `useAllQuestions`/`preserveOrder`, and disables option **and** question
+  shuffling on all three paths (initial, fresh-shuffle retake, smart retake) —
+  reference mode overrides `questionOrder: 'RANDOM'` rather than yielding to it.
+
+Question text, options and the correct answer are verbatim. `explanation` is
+still AI-written (grounded in `sourceQuote`) — it is additive, not a change to
+the source.
+
 ### ⚠️ Keep the model list in sync (two places)
 
 The allowed-model list is duplicated and **must stay identical**:
