@@ -77,9 +77,17 @@
   - Up to **20** documents are kept; the oldest is evicted beyond the cap
 - **📄 HTML Report Download**: After an exam, download a **self-contained HTML report** from the results page (inline CSS, zero external assets, opens offline, printable) containing every question, your answer, correct/incorrect status, the correct answer, explanation, document evidence quote, and overall score
 - **🎯 Guaranteed Question Count**: Ask for 40 questions and you get 40. The app generates and de-duplicates into the bank until the requested count is met; if the document genuinely can't yield enough, a clear message is shown instead of silently returning fewer
-- **📚 Load Every Question Unchanged**: Tick **Use every question** in the exam setup to run the entire extracted bank — no sampling, and no 100-question cap. Combined with **Question Order = Sequential**, the whole paper is reproduced in the PDF's own order, with the original wording and option order
+- **📄 Reference Mode (your uploaded PDF is the only source)**: The exam setup opens with a **Question Source** choice. Pick **📄 Transcribe from document** and the uploaded file becomes the sole reference — every question and answer is copied out of it word for word:
+  - **Never invents a question.** The prompt the model receives contains no "generate questions" branch at all, so there is no fork a misread document can fall into
+  - **Never changes a word.** Question text, options and the correct answer are copied CHARACTER-FOR-CHARACTER — no rewording, translating, simplifying or "improving"
+  - **Temperature is pinned to 0**, overriding the Settings slider — transcription has exactly one correct output
+  - **Every question, document order.** No sampling, no count cap, and no shuffling of questions or options (reference mode overrides Randomized rather than yielding to it)
+  - **Fails loudly instead of quietly generating.** If the document holds no pre-written questions, you get `NO_QUESTIONS_IN_DOCUMENT` and a prompt to switch modes
+  - Note: each question's **explanation** is still AI-written (grounded in the source quote). It is an additive study aid, not a change to the source
+- **✨ Generate Mode**: For study material (notes, textbooks, slides). Behaves exactly as before — choose your own count and order, or tick **Use every question** to run the whole bank
   - The bank panel reports extraction status: ✅ fully extracted, or ⚠️ not verified complete (click Regenerate to retry)
   - If extraction stopped short, an amber notice appears when the exam starts, so a partial bank is never silently treated as the full paper
+  - If the cached bank was AI-generated (CASE B) while reference mode is selected, the panel warns in red and the document is re-extracted in reference mode when the exam starts
 - **🛡️ Sturdier Exam Creation**:
   - Auto-fallback to a stable backup model when the chosen model is overloaded (429/503) **or** invalid/unavailable (400/404 "model not found")
   - **90-second timeout** (AbortController) per request so a hung connection can't block creation

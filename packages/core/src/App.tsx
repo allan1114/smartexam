@@ -240,6 +240,18 @@ const App: React.FC = () => {
         bank = null;
       }
 
+      // Reference mode may not run on a bank the AI authored. A CASE B bank
+      // cached by an earlier generate-mode session would otherwise be served
+      // straight through, silently defeating the mode the user just picked.
+      if (bank && examConfig.referenceMode && bank.caseType !== 'A') {
+        logger.info(
+          `Bank for ${bankKey} is CASE ${bank.caseType} (AI-generated); reference mode requires a transcribed bank — re-extracting.`,
+          'App.startExam'
+        );
+        deleteQuestionBank(bankKey);
+        bank = null;
+      }
+
       if (!bank) {
         const targetPoolSize = Math.max(examConfig.totalQuestions * 3, 30);
         const { questions: bankQuestions, caseType, extractionComplete, droppedCount } = await extractQuestionBank(
@@ -249,7 +261,8 @@ const App: React.FC = () => {
           examConfig.answerFormat,
           examConfig.contentRange,
           examConfig.temperature ?? 0.3,
-          onExtractionProgress
+          onExtractionProgress,
+          { referenceMode: examConfig.referenceMode }
         );
         if (!bankQuestions || bankQuestions.length === 0) {
           throw new Error("NO_QUESTIONS_FOUND: AI failed to extract any valid questions from the document.");
@@ -289,7 +302,9 @@ const App: React.FC = () => {
       //     document contains (continuation extraction), so re-running extraction
       //     can only return duplicates; fall through to the NOT_ENOUGH_QUESTIONS
       //     check which reports the true maximum.
-      if (bank.caseType !== 'A' && !examConfig.useAllQuestions) {
+      //     Reference mode is excluded outright: topping up means asking the AI
+      //     to author the shortfall, which is the one thing the mode forbids.
+      if (!examConfig.referenceMode && bank.caseType !== 'A' && !examConfig.useAllQuestions) {
         const TOPUP_MAX_ATTEMPTS = 3;
         let topupAttempts = 0;
         while (bank.questions.length < examConfig.totalQuestions && topupAttempts < TOPUP_MAX_ATTEMPTS) {
@@ -303,7 +318,12 @@ const App: React.FC = () => {
             examConfig.model,
             examConfig.answerFormat,
             examConfig.contentRange,
-            examConfig.temperature ?? 0.3
+            examConfig.temperature ?? 0.3,
+            undefined,
+            // Unreachable in reference mode (the guard above excludes it), but
+            // passed anyway so the loop fails loudly rather than authoring
+            // questions if that guard is ever loosened.
+            { referenceMode: examConfig.referenceMode }
           );
           const appended = extra && extra.length > 0 ? appendToQuestionBank(bankKey, extra) : null;
           if (appended?.bank) {
@@ -317,13 +337,15 @@ const App: React.FC = () => {
 
       // "Use every question" takes whatever the document yielded — the bank size
       // IS the target, so the fixed-count guard below doesn't apply to it.
-      const effectiveCount = examConfig.useAllQuestions
+      // Reference mode implies it: reproducing the paper means all of it.
+      const useEveryQuestion = examConfig.useAllQuestions || examConfig.referenceMode;
+      const effectiveCount = useEveryQuestion
         ? bank.questions.length
         : examConfig.totalQuestions;
 
       // If we still can't reach the requested count, tell the user the real max
       // instead of silently handing back fewer questions.
-      if (!examConfig.useAllQuestions && bank.questions.length < examConfig.totalQuestions) {
+      if (!useEveryQuestion && bank.questions.length < examConfig.totalQuestions) {
         throw new Error(
           `NOT_ENOUGH_QUESTIONS: 呢份文件最多只能生成 ${bank.questions.length} 題，但你揀咗 ${examConfig.totalQuestions} 題。請將題目數量調至 ${bank.questions.length} 或以下，或者剔選「Use every question」。`
         );
@@ -333,7 +355,7 @@ const App: React.FC = () => {
       //    the whole bank was requested. SEQUENTIAL keeps the document's order
       //    so an uploaded exam paper reads exactly as it does in the PDF.
       const generatedQuestions = sampleQuestionsFromBank(bank, effectiveCount, {
-        preserveOrder: examConfig.questionOrder === 'SEQUENTIAL',
+        preserveOrder: examConfig.questionOrder === 'SEQUENTIAL' || examConfig.referenceMode === true,
       });
       if (!generatedQuestions || generatedQuestions.length === 0) {
         throw new Error("NO_QUESTIONS_FOUND: Question bank is empty.");
@@ -349,11 +371,13 @@ const App: React.FC = () => {
       setCurrentExamSessionId(sessionId);
 
       // SEQUENTIAL mode: options stay in original order; RANDOM mode: options shuffled
-      const shouldShuffleOptions = examConfig.questionOrder === 'RANDOM';
-      const { questions: displayQuestions } = getDisplayQuestions(generatedQuestions as any, shouldShuffleOptions);
+      // Reference mode reproduces the paper, so neither the questions nor their
+      // options may move — it overrides RANDOM rather than being overridden.
+      const shuffleAllowed = examConfig.questionOrder === 'RANDOM' && !examConfig.referenceMode;
+      const { questions: displayQuestions } = getDisplayQuestions(generatedQuestions as any, shuffleAllowed);
 
       // Apply question order (RANDOM or SEQUENTIAL) to display questions
-      const finalQuestions = examConfig.questionOrder === 'RANDOM'
+      const finalQuestions = shuffleAllowed
         ? shuffleQuestions(displayQuestions)
         : displayQuestions;
 
@@ -418,11 +442,13 @@ const App: React.FC = () => {
       }
 
       // SEQUENTIAL: keep option order; RANDOM: shuffle options
-      const shouldShuffleOptions = config?.questionOrder === 'RANDOM';
-      const { questions: displayQuestions } = getDisplayQuestions(originalQuestions, shouldShuffleOptions);
+      // A reference-mode paper stays fixed across retakes too — "fresh shuffles"
+      // must not start rearranging a document the user asked us to reproduce.
+      const shuffleAllowed = config?.questionOrder === 'RANDOM' && !config?.referenceMode;
+      const { questions: displayQuestions } = getDisplayQuestions(originalQuestions, shuffleAllowed);
 
       // Apply question order from config
-      const finalQuestions = config?.questionOrder === 'RANDOM'
+      const finalQuestions = shuffleAllowed
         ? shuffleQuestions(displayQuestions)
         : displayQuestions;
 
@@ -475,7 +501,9 @@ const App: React.FC = () => {
       );
 
       // SEQUENTIAL: keep option order; RANDOM: shuffle options
-      const shouldShuffleOptions = config?.questionOrder === 'RANDOM';
+      // Smart retake deliberately reorders questions by mastery; that is the
+      // point of the mode. Option order still stays put under reference mode.
+      const shouldShuffleOptions = config?.questionOrder === 'RANDOM' && !config?.referenceMode;
       const { questions: displayQuestions } = getDisplayQuestions(smartOrderedQuestions, shouldShuffleOptions);
 
       // Create retake session
@@ -568,6 +596,7 @@ const App: React.FC = () => {
     if (error.type === 'SAFETY_BLOCK') advice = "The content was rejected by the AI safety filters.";
     if (error.type === 'NOT_ENOUGH_QUESTIONS') advice = "請在考試設定中將題目數量調低，或改用內容更豐富的文件。";
     if (error.type === 'NO_QUESTIONS_IN_RANGE') advice = "清空「Focus Range」可抽取整份文件，或改用文件中真實存在的題號範圍（例如 1-50）。";
+    if (error.type === 'NO_QUESTIONS_IN_DOCUMENT') advice = "「原文抽取」只會逐字複製文件本身已有的題目，絕不自創。若這份文件是學習材料（筆記／課本／簡報）而非試卷，請在考試設定改選「AI 生成」。";
     if (error.type === 'REUPLOAD_REQUIRED') advice = "切換到「Upload File」分頁重新上傳該 PDF/圖片即可。";
 
     return (
@@ -637,6 +666,7 @@ const App: React.FC = () => {
           <ExamSetup
             onStart={startExam}
             docHash={docSource ? generateDocumentHash(docSource.text, docSource.fileData) : null}
+            isFileSource={Boolean(docSource?.fileData)}
             onRegenerateBank={(hash) => deleteQuestionBank(hash)}
           />
         )}

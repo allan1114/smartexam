@@ -29,9 +29,10 @@ const makeQuestions = ({ idStart, count }: FakeQuestionOpts) =>
 /** Build a Gemini REST response carrying a question bank, optionally cut off mid-array. */
 const makeBankResponse = (
   questions: unknown[],
-  { truncate = false, finishReason, total }: { truncate?: boolean; finishReason?: string; total?: number } = {}
+  { truncate = false, finishReason, total, caseType = 'A' }:
+    { truncate?: boolean; finishReason?: string; total?: number; caseType?: string } = {}
 ) => {
-  let json = JSON.stringify({ caseType: 'A', ...(total !== undefined && { totalQuestionCount: total }), questions });
+  let json = JSON.stringify({ caseType, ...(total !== undefined && { totalQuestionCount: total }), questions });
   if (truncate) {
     // Cut inside the final array element so repairTruncatedJson must salvage.
     json = json.slice(0, json.length - 40);
@@ -628,5 +629,123 @@ describe('parseQuestionRange', () => {
     ['0-10'],
   ])('does not parse %s as a question range', input => {
     expect(parseQuestionRange(input)).toBeNull();
+  });
+});
+
+describe('extractQuestionBank — reference mode', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('smart_exam_api_key', 'test-key');
+    localStorage.removeItem('smart_exam_use_proxy');
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const systemText = (callIdx: number): string =>
+    getRequestBody(fetchMock, callIdx).systemInstruction.parts[0].text as string;
+
+  const call = (opts?: { referenceMode?: boolean }, temperature = 0.3) =>
+    extractQuestionBank(
+      { text: 'doc' }, 30, 'gemini-2.5-flash', 'AUTO', undefined, temperature, undefined, opts
+    );
+
+  it('instructs the model to transcribe only and removes the generate branch', async () => {
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 3 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    await call({ referenceMode: true });
+
+    const text = systemText(0);
+    expect(text).toContain('TRANSCRIBE ONLY. DO NOT AUTHOR.');
+    expect(text).toContain('You MUST NOT generate, invent, compose');
+    // The CASE B authoring branch must be absent — there is no fork to fall into.
+    expect(text).not.toContain('If CASE B:');
+    expect(text).not.toContain('distinct questions strictly grounded');
+    // The verbatim rules are still carried over intact.
+    expect(text).toContain('CHARACTER-FOR-CHARACTER');
+  });
+
+  it('pins temperature to 0 even when the user raised it in Settings', async () => {
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 2 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    await call({ referenceMode: true }, 0.9);
+
+    expect(getRequestBody(fetchMock, 0).generationConfig.temperature).toBe(0);
+  });
+
+  it('fails with NO_QUESTIONS_IN_DOCUMENT rather than accepting a generated bank', async () => {
+    // The model decided this is study material and authored questions anyway.
+    fetchMock.mockResolvedValue(
+      makeBankResponse(makeQuestions({ idStart: 1, count: 5 }), { caseType: 'B' })
+    );
+
+    await expect(call({ referenceMode: true })).rejects.toThrow('NO_QUESTIONS_IN_DOCUMENT');
+  });
+
+  it('fails when the model returns an empty bank for a reference-mode document', async () => {
+    // Round 1 empty, and the sliding window has nothing further to offer.
+    fetchMock.mockResolvedValue(makeBankResponse([], { caseType: 'B' }));
+
+    await expect(call({ referenceMode: true })).rejects.toThrow('NO_QUESTIONS_IN_DOCUMENT');
+  });
+
+  it('keeps the document verdict over the Focus Range diagnosis when the model says CASE B', async () => {
+    // A range is set, but the model's verdict is about the whole document, not
+    // the range — so blaming the range would send the user to fix the wrong thing.
+    fetchMock.mockResolvedValue(
+      makeBankResponse(makeQuestions({ idStart: 1, count: 2 }), { caseType: 'B' })
+    );
+
+    await expect(
+      extractQuestionBank(
+        { text: 'doc' }, 30, 'gemini-2.5-flash', 'AUTO', 'Question 10-20', 0.3, undefined,
+        { referenceMode: true }
+      )
+    ).rejects.toThrow('NO_QUESTIONS_IN_DOCUMENT');
+  });
+
+  it('extracts normally when the document really is a paper', async () => {
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 4 }), { total: 4 }))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    const result = await call({ referenceMode: true });
+
+    expect(result.caseType).toBe('A');
+    expect(result.questions).toHaveLength(4);
+    expect(result.extractionComplete).toBe(true);
+  });
+
+  it('leaves the classify/generate prompt and the caller temperature untouched when off', async () => {
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 3 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    await call(undefined, 0.7);
+
+    const text = systemText(0);
+    expect(text).toContain('STEP 1 — CLASSIFY THE DOCUMENT');
+    expect(text).toContain('If CASE B:');
+    expect(text).not.toContain('TRANSCRIBE ONLY');
+    expect(getRequestBody(fetchMock, 0).generationConfig.temperature).toBe(0.7);
+  });
+
+  it('accepts a CASE B verdict as usual when reference mode is off', async () => {
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 3 }), { caseType: 'B' }));
+
+    const result = await call(undefined);
+
+    expect(result.caseType).toBe('B');
+    expect(result.questions).toHaveLength(3);
   });
 });
