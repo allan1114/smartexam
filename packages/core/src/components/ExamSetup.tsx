@@ -349,6 +349,10 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
           </div>
           <p className="mt-2 text-xs text-slate-400 dark:text-slate-500 font-medium">
             題號範圍（例如 <code>179-250</code>）會令 AI 只抽取該段題目，並為該範圍單獨建立題庫。
+            <br />
+            <strong>頁數範圍</strong>（要寫明 Pages，例如 <code>Pages 1-20</code>）用 MiniMax 時會
+            <strong>只讀取該幾頁</strong>——MiniMax 要將 PDF 逐頁轉成圖片，所以長文件必須分段。
+            用 Google 模型則毋須分段，可直接讀完整份 PDF。
           </p>
         </div>
 

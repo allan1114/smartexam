@@ -177,7 +177,8 @@ const uploadFileToGemini = async (
  * Called once per extraction so retries/fallbacks never re-upload.
  */
 const resolveFileParts = async (
-  source: DocumentSource
+  source: DocumentSource,
+  contentRange?: string
 ): Promise<Array<Record<string, unknown>>> => {
   if (!source.fileData) return [];
   const { data, mimeType } = source.fileData;
@@ -191,7 +192,11 @@ const resolveFileParts = async (
   // Anything else falls through and callMinimax rejects it by name.
   if (provider === 'minimax') {
     if (mimeType === 'application/pdf') {
-      const pages = await rasterizePdfToImages(data);
+      // A page range in Focus Range slices the file BEFORE rasterizing — the
+      // only way a long PDF fits through an images-only endpoint. Google
+      // ignores this entirely and reads the whole document.
+      const pageRange = parsePageRange(contentRange) ?? undefined;
+      const pages = await rasterizePdfToImages(data, { pageRange });
       return pages.map(p => ({ inlineData: { data: p.data, mimeType: p.mimeType } }));
     }
     return [{ inlineData: source.fileData }];
@@ -648,6 +653,41 @@ export const parseQuestionRange = (contentRange?: string): QuestionRange | null 
   return { start, end };
 };
 
+/**
+ * Recognize a PAGE range in the Focus Range input — "Pages 1-20", "p.1-20",
+ * "第 1-20 頁", "頁 1 至 20".
+ *
+ * This is the counterpart to `parseQuestionRange`, which deliberately ignores
+ * page wording. Where a question range shapes the PROMPT, a page range slices
+ * the DOCUMENT: it is the only way to put a long PDF through MiniMax, whose
+ * endpoint takes images rather than PDF bytes, so every page must be rasterized
+ * and the whole document will not fit in one request.
+ *
+ * Google never needs this — Gemini ingests the PDF directly, at any length.
+ */
+export const parsePageRange = (contentRange?: string): { start: number; end: number } | null => {
+  const text = contentRange?.trim();
+  if (!text) return null;
+
+  // Require explicit page wording. A bare "10-20" is a question range
+  // (parseQuestionRange's job) and must not silently start slicing the file.
+  // No trailing \b on the abbreviation: "pp. 21-40" has a space after the dot,
+  // and "." followed by " " is not a word boundary.
+  const hasPageWord = /\bpages?\b/i.test(text) || /\bpp?\./i.test(text) || /[頁页]/.test(text);
+  if (!hasPageWord) return null;
+
+  const match = text.match(
+    /(\d{1,5})\s*(?:-|–|—|~|至|到|\bto\b|\bthrough\b)\s*(?:pages?\s*|pp?\.\s*|第\s*)?(\d{1,5})/i
+  );
+  if (!match) return null;
+
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
+  if (start < 1 || end < start) return null;
+  return { start, end };
+};
+
 export const extractQuestionBank = async (
   source: DocumentSource,
   targetPoolSize: number = 30,
@@ -748,7 +788,7 @@ export const extractQuestionBank = async (
   // Resolve file input ONCE up front: oversized files are uploaded via the
   // Gemini Files API (direct mode) so big PDFs don't blow the inline request cap.
   // Reused across the retry/fallback attempts below so we never re-upload.
-  const fileParts = await resolveFileParts(source);
+  const fileParts = await resolveFileParts(source, contentRange);
 
   // A file-backed or very long document needs much more than the default 90s to
   // ingest + generate a bank — give it a generous per-call deadline. "heavy"

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { extractQuestionBank, parseQuestionRange } from '../geminiService';
+import { extractQuestionBank, parseQuestionRange, parsePageRange } from '../geminiService';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '../../constants/models';
 
 /**
@@ -747,5 +747,47 @@ describe('extractQuestionBank — reference mode', () => {
 
     expect(result.caseType).toBe('B');
     expect(result.questions).toHaveLength(3);
+  });
+});
+
+describe('parsePageRange', () => {
+  it.each([
+    ['Pages 1-20', 1, 20],
+    ['pages 10 to 20', 10, 20],
+    ['Page 3-7', 3, 7],
+    ['p.1-20', 1, 20],
+    ['pp. 21-40', 21, 40],
+    ['第1-20頁', 1, 20],
+    ['第 21 至 40 頁', 21, 40],
+    ['頁 5-9', 5, 9],
+    ['Pages 1–20', 1, 20],
+  ])('parses %s', (input, start, end) => {
+    expect(parsePageRange(input)).toEqual({ start, end });
+  });
+
+  it.each([
+    // A bare number range is a QUESTION range — slicing the file on it would
+    // silently drop most of the document.
+    ['179-250'],
+    ['Question 179-250'],
+    ['Q1-Q50'],
+    ['Chapter 3'],
+    ['Section 2-4'],
+    [''],
+    [undefined],
+    ['Pages 20-1'],
+    ['Pages 0-5'],
+  ])('does not parse %s as a page range', input => {
+    expect(parsePageRange(input as string | undefined)).toBeNull();
+  });
+
+  it('never claims both a question range and a page range for one input', () => {
+    // The two parsers must partition the input space: one shapes the prompt,
+    // the other slices the file.
+    for (const input of ['179-250', 'Pages 1-20', 'Q1-Q50', '第1-20頁', 'Chapter 3']) {
+      const asQuestions = parseQuestionRange(input);
+      const asPages = parsePageRange(input);
+      expect(Boolean(asQuestions) && Boolean(asPages)).toBe(false);
+    }
   });
 });
