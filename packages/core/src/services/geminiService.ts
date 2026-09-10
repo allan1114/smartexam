@@ -79,6 +79,20 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 const getProvider = (): 'google' | 'minimax' =>
   localStorage.getItem('smart_exam_provider') === 'minimax' ? 'minimax' : 'google';
 
+/**
+ * Whether to route Gemini calls through the serverless proxy.
+ *
+ * An explicit choice in Settings always wins. When the user has never chosen,
+ * the deployment decides via `VITE_USE_GEMINI_PROXY` — without this a Vercel
+ * deploy was pointless: the server-side `GEMINI_API_KEY` sat unused because the
+ * client defaulted to direct mode and demanded the user paste their own key.
+ */
+export const shouldUseProxy = (): boolean => {
+  const stored = localStorage.getItem('smart_exam_use_proxy');
+  if (stored !== null) return stored === 'true';
+  return import.meta.env?.VITE_USE_GEMINI_PROXY === 'true';
+};
+
 /** Decode a base64 string into a Blob without inflating it through a data-URI. */
 const base64ToBlob = (base64: string, mimeType: string): Blob => {
   const byteChars = atob(base64);
@@ -168,7 +182,7 @@ const resolveFileParts = async (
   if (!source.fileData) return [];
   const { data, mimeType } = source.fileData;
   const provider = getProvider();
-  const useProxy = localStorage.getItem('smart_exam_use_proxy') === 'true';
+  const useProxy = shouldUseProxy();
   const apiKey = localStorage.getItem('smart_exam_api_key') || '';
 
   // MiniMax speaks images, not documents. An image goes straight through as an
@@ -411,8 +425,8 @@ const callGeminiViaProxy = async (
     return callMinimax(contents, config);
   }
 
-  // Default is direct mode (false). Only proxy mode if explicitly set to 'true'.
-  const useProxy = localStorage.getItem('smart_exam_use_proxy') === 'true';
+  // Settings choice wins; otherwise the deployment's VITE_USE_GEMINI_PROXY decides.
+  const useProxy = shouldUseProxy();
   const proxyUrl = localStorage.getItem('smart_exam_proxy_url') || '/api/proxy-gemini';
   const apiKey = localStorage.getItem('smart_exam_api_key') || '';
 

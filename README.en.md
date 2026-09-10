@@ -227,9 +227,10 @@ echo "VITE_USE_GEMINI_PROXY=true" >> .env.local
 | Variable | Mode | Value | Required |
 |----------|------|-------|----------|
 | `VITE_GEMINI_API_KEY` | Development | Your API key | Yes (Dev only) |
-| `VITE_USE_GEMINI_PROXY` | Both | `true`/`false` | No (Default: false) |
+| `VITE_USE_GEMINI_PROXY` | Both | `true`/`false` | No (Default: false). **Set `true` on Vercel**, or the server-side `GEMINI_API_KEY` is never used. An explicit choice in ⚙️ Settings still wins |
 | `VITE_GEMINI_PROXY_URL` | Both | `/api/proxy-gemini` | No (Custom proxy URL) |
-| `GEMINI_API_KEY` | Production | Your API key | Yes (Server-side only) |
+| `VITE_BASE_PATH` | Build | `/` or `/smartexam/` | No. Asset root: unset → `/smartexam/` (GitHub Pages); `vercel.json` sets `/` for Vercel |
+| `GEMINI_API_KEY` | Production | Your API key | Yes (Server-side only). Put it in Vercel **Project Settings**, not a `vercel.json` `env` entry |
 
 ---
 

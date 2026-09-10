@@ -228,9 +228,10 @@ echo "VITE_USE_GEMINI_PROXY=true" >> .env.local
 | 變數 | 模式 | 值 | 需要 |
 |------|------|-------|------|
 | `VITE_GEMINI_API_KEY` | 開發 | 您的 API 金鑰 | 是（僅開發） |
-| `VITE_USE_GEMINI_PROXY` | 兩者 | `true`/`false` | 否（預設：false） |
+| `VITE_USE_GEMINI_PROXY` | 兩者 | `true`/`false` | 否（預設：false）。**Vercel 部署必須設 `true`**，否則服務器端的 `GEMINI_API_KEY` 永遠用不到。使用者在 ⚙️ Settings 的明確選擇仍然優先 |
 | `VITE_GEMINI_PROXY_URL` | 兩者 | `/api/proxy-gemini` | 否（自訂代理 URL） |
-| `GEMINI_API_KEY` | 生產 | 您的 API 金鑰 | 是（僅服務器端） |
+| `VITE_BASE_PATH` | 建置 | `/` 或 `/smartexam/` | 否。資源根路徑：不設 → `/smartexam/`（GitHub Pages）；`vercel.json` 已為 Vercel 設 `/` |
+| `GEMINI_API_KEY` | 生產 | 您的 API 金鑰 | 是（僅服務器端）。放在 Vercel **Project Settings**，不要寫進 `vercel.json` 的 `env` |
 
 ---
 
