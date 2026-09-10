@@ -23,14 +23,26 @@
 
 In the **Environment Variables** section, add:
 
-| Name | Value | Environment |
-|------|-------|-------------|
-| `GEMINI_API_KEY` | Your Gemini API key | Production, Preview, Development |
+| Name | Value | Environment | Why |
+|------|-------|-------------|-----|
+| `GEMINI_API_KEY` | Your Gemini API key | Production, Preview, Development | Server-side key used by `api/proxy-gemini.ts`. Never reaches the browser |
+| `VITE_USE_GEMINI_PROXY` | `true` | Production, Preview | **Required, or the key above is never used.** Without it the app defaults to direct mode and asks each visitor for their own key |
+
+> **Do not add a `vercel.json` `env` block for the key.** Plain Project Settings
+> variables are all that is needed. The legacy `"@secret-name"` syntax refers to
+> a Vercel *Secret*, which a Project Settings variable does **not** satisfy — the
+> deployment then fails at config validation, before `npm install` even runs.
 
 **Get your API key:**
 1. Go to [AI Studio](https://aistudio.google.com/app/apikey)
 2. Create a new API key
 3. Copy and paste it into Vercel
+
+**A note on the base path:** the app builds with `VITE_BASE_PATH=/` for Vercel
+(the domain root) versus the `/smartexam/` default used by GitHub Pages.
+`vercel.json`'s `buildCommand` already sets it. If you override the Build
+Command in the Vercel dashboard, **keep the `VITE_BASE_PATH=/` prefix** — without
+it the build still succeeds and every asset 404s in the browser.
 
 ### Step 4: Deploy
 
@@ -93,6 +105,36 @@ If you see build errors:
    ```bash
    npm run type-check
    ```
+
+### Deployment fails before it starts
+
+> `Environment Variable "GEMINI_API_KEY" references Secret "gemini-api-key", which does not exist.`
+
+`vercel.json` is carrying an `env` block using the legacy `"@secret-name"`
+syntax. Remove the block — the key belongs in **Project Settings**. A Project
+Settings variable does not satisfy a Secret reference, so adding one does not
+fix this on its own.
+
+### Every asset 404s / blank page
+
+The build shipped with the GitHub Pages base path. Check that the Build Command
+still begins with `VITE_BASE_PATH=/` (a dashboard override replaces
+`vercel.json`'s). Confirm by viewing source: script `src` should be
+`/assets/…`, not `/smartexam/assets/…`.
+
+### 504 on large PDFs (`FUNCTION_INVOCATION_TIMEOUT`)
+
+The client budgets up to 240s for file-backed extraction, so the proxy function
+needs at least that much. `vercel.json` sets
+`functions["api/proxy-gemini.ts"].maxDuration` to 300 — confirm your plan allows
+that duration, otherwise split the document with **Focus Range**.
+
+### The app still asks for an API key after deploying
+
+`VITE_USE_GEMINI_PROXY` is not set to `true`, so the app is in direct mode and
+the server-side key is never consulted. Set it and redeploy. (A user who has
+explicitly toggled proxy mode in ⚙️ Settings keeps their own choice — that is
+stored per browser and overrides the deployment default.)
 
 ### API Errors (500 / 401)
 

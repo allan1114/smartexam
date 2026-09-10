@@ -146,6 +146,36 @@ Question text, options and the correct answer are verbatim. `explanation` is
 still AI-written (grounded in `sourceQuote`) — it is additive, not a change to
 the source.
 
+### MiniMax provider — images and PDFs
+
+MiniMax is selected via `smart_exam_provider` and short-circuits at the top of
+`callGeminiViaProxy`; its endpoint/model/key live under their own localStorage
+keys and never touch the Gemini settings.
+
+Its chat endpoint is OpenAI-compatible, and **that schema has text and image
+parts only — there is no PDF part**. So the file path differs from Google's:
+
+- `resolveFileParts` sends an image straight through; a **PDF is rasterized to
+  one PNG per page** (`utils/pdfRasterizer.ts`, `pdfjs-dist` behind a dynamic
+  `import()` so it code-splits) and sent as image parts. Google's path is
+  untouched — Gemini ingests PDF bytes directly, which is strictly better: no
+  rasterization loss and no page cap.
+- `buildMinimaxMessages` emits OpenAI multimodal parts
+  (`{type:'image_url', image_url:{url:'data:…'}}`) when a turn carries images,
+  and a **plain string when it doesn't** — text-only requests must keep going out
+  byte-identical to before.
+- `unsupportedFile` covers what genuinely cannot be carried (a non-image blob, a
+  Gemini Files API URI) and raises `MINIMAX_UNSUPPORTED_FILE`. Do not let it
+  regress into dropping the binary silently — every message shape must run the
+  conversion, which the chat-history shapes previously skipped.
+- The default model is **`MiniMax-VL-01`** (`constants/minimax.ts`), not
+  `MiniMax-Text-01`: a text-only model cannot see an image however correctly it
+  is attached.
+- Page cap: `DEFAULT_MAX_PDF_PAGES` (20). Every page is re-sent on each
+  continuation round, so request size grows fast — past the cap the user gets
+  `MINIMAX_PDF_TOO_MANY_PAGES` naming the real page count. For a big paper,
+  Google is the right answer.
+
 ### ⚠️ Keep the model list in sync (two places)
 
 The allowed-model list is duplicated and **must stay identical**:
@@ -206,8 +236,13 @@ to metadata-only and prompt for a re-upload.
 
 ## Build / deploy notes
 
-- Web build base path is **`/smartexam/`** (set in `packages/web/vite.config.ts`)
-  because of GitHub Pages project-site hosting. Keep this in mind for asset URLs.
+- Web build base path is **overridable, not fixed**:
+  `packages/web/vite.config.ts` uses `env.VITE_BASE_PATH || '/smartexam/'`. The
+  default suits GitHub Pages project-site hosting; `vercel.json`'s build command
+  sets `VITE_BASE_PATH=/` because Vercel serves the domain root. Getting this
+  wrong fails silently — the build succeeds and every asset 404s in the browser —
+  so `packages/core/src/__tests__/deployConfig.test.ts` guards both values.
+  Keep the base path in mind for any hardcoded asset URL.
 - **GitHub Pages** deploys automatically on push to `main`/`master` via
   `.github/workflows/deploy-github-pages.yml`: it builds web, writes `404.html`
   + `.nojekyll` (SPA routing), and deploys the Pages artifact
@@ -215,8 +250,16 @@ to metadata-only and prompt for a re-upload.
   `gh-pages` branch mirror; a second deployment path races the artifact deploy
   and fails with "in progress deployment". Live at
   https://allan1114.github.io/smartexam/.
-- **Vercel** uses `vercel.json` (framework `vite`, security headers, `GEMINI_API_KEY`
-  env) and serves `api/proxy-gemini.ts` as the proxy.
+- **Vercel** uses `vercel.json` and serves `api/proxy-gemini.ts` as the proxy.
+  Four things there are load-bearing and easy to break:
+  - `VITE_BASE_PATH=/` in `buildCommand` (see above).
+  - `installCommand` scopes the install to core + web. `packages/desktop` is a
+    workspace, so an unscoped install drags Electron into a static web build.
+  - `functions["api/proxy-gemini.ts"].maxDuration` must exceed the client's
+    `FILE_REQUEST_TIMEOUT_MS` (240s) or large-PDF extraction returns 504.
+  - **No `env` block.** `GEMINI_API_KEY` belongs in Vercel Project Settings. The
+    legacy `"@secret-name"` syntax fails the deployment at config validation —
+    before install — and a Project Settings variable does *not* satisfy it.
 
 ## Environment variables
 
@@ -225,9 +268,16 @@ Copy `.env.example` → `.env.local`. See README "環境變數參考" for the fu
 | Var | Mode | Notes |
 |---|---|---|
 | `VITE_GEMINI_API_KEY` | dev | Direct mode; exposed to browser — dev only |
-| `VITE_USE_GEMINI_PROXY` | both | `true`/`false` (default false) |
+| `VITE_USE_GEMINI_PROXY` | both | `true`/`false`. The **default when the user has never chosen** in Settings (`shouldUseProxy()`); an explicit Settings choice always wins. Set `true` on Vercel or the server-side key is never used |
 | `VITE_GEMINI_PROXY_URL` | both | default `/api/proxy-gemini` |
-| `GEMINI_API_KEY` | prod | Server-side only (Vercel), never client |
+| `VITE_BASE_PATH` | build | Asset root. Unset → `/smartexam/` (GitHub Pages); `vercel.json` sets `/` for Vercel |
+| `GEMINI_API_KEY` | prod | Server-side only (Vercel **Project Settings**, not a `vercel.json` `env` entry), never client |
+
+MiniMax provider config is **not** env-driven — it lives in `localStorage`
+(`smart_exam_provider`, `smart_exam_minimax_model|url|api_key`), with defaults in
+`packages/core/src/constants/minimax.ts`. Note the MiniMax key is held and sent
+client-side; there is no MiniMax proxy, so `SECURITY.md`'s key-protection story
+covers Google only.
 
 ## Further reading
 

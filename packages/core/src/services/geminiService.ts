@@ -5,7 +5,9 @@ import { cleanJsonResponse, cleanJsonResponseDetailed, normalizeGeneratedQuestio
 import { questionDedupKey } from "../utils/questionBank";
 import { isRetryableError } from "../utils/errors";
 import { logger } from "../utils/logger";
+import { rasterizePdfToImages } from "../utils/pdfRasterizer";
 import { DEFAULT_MODEL, getFallbackModel, getMaxOutputTokens, isOverloadError, isModelUnavailableError } from "../constants/models";
+import { MINIMAX_DEFAULT_MODEL, MINIMAX_DEFAULT_URL } from "../constants/minimax";
 
 const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GEMINI_FILES_UPLOAD_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
@@ -76,6 +78,20 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 /** Which AI provider the user has selected. Defaults to Google (existing behavior). */
 const getProvider = (): 'google' | 'minimax' =>
   localStorage.getItem('smart_exam_provider') === 'minimax' ? 'minimax' : 'google';
+
+/**
+ * Whether to route Gemini calls through the serverless proxy.
+ *
+ * An explicit choice in Settings always wins. When the user has never chosen,
+ * the deployment decides via `VITE_USE_GEMINI_PROXY` — without this a Vercel
+ * deploy was pointless: the server-side `GEMINI_API_KEY` sat unused because the
+ * client defaulted to direct mode and demanded the user paste their own key.
+ */
+export const shouldUseProxy = (): boolean => {
+  const stored = localStorage.getItem('smart_exam_use_proxy');
+  if (stored !== null) return stored === 'true';
+  return import.meta.env?.VITE_USE_GEMINI_PROXY === 'true';
+};
 
 /** Decode a base64 string into a Blob without inflating it through a data-URI. */
 const base64ToBlob = (base64: string, mimeType: string): Blob => {
@@ -166,11 +182,20 @@ const resolveFileParts = async (
   if (!source.fileData) return [];
   const { data, mimeType } = source.fileData;
   const provider = getProvider();
-  const useProxy = localStorage.getItem('smart_exam_use_proxy') === 'true';
+  const useProxy = shouldUseProxy();
   const apiKey = localStorage.getItem('smart_exam_api_key') || '';
 
-  // MiniMax has no inline-file support here; callMinimax surfaces a clear error.
-  if (provider === 'minimax') return [{ inlineData: source.fileData }];
+  // MiniMax speaks images, not documents. An image goes straight through as an
+  // `image_url` part; a PDF is rasterized to one image per page first, since a
+  // PDF page is a picture and the OpenAI-compatible schema has no PDF part.
+  // Anything else falls through and callMinimax rejects it by name.
+  if (provider === 'minimax') {
+    if (mimeType === 'application/pdf') {
+      const pages = await rasterizePdfToImages(data);
+      return pages.map(p => ({ inlineData: { data: p.data, mimeType: p.mimeType } }));
+    }
+    return [{ inlineData: source.fileData }];
+  }
 
   if (useProxy) {
     if (data.length > PROXY_MAX_BASE64_LEN) {
@@ -196,50 +221,96 @@ const resolveFileParts = async (
   return [{ inlineData: source.fileData }];
 };
 
+/** OpenAI-style multimodal content part, used when a turn carries images. */
+export type MinimaxContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 interface MinimaxMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | MinimaxContentPart[];
 }
 
 /**
  * Translate the Gemini-style `contents` (used throughout this service) into the
- * OpenAI/MiniMax `messages` array. Returns `hasFile` so the caller can reject
- * file-based input (MiniMax's chat endpoint doesn't accept inline PDFs/images
- * here). Pure + exported for unit testing.
+ * OpenAI/MiniMax `messages` array. Pure + exported for unit testing.
+ *
+ * Images are carried as OpenAI multimodal `image_url` parts holding a data URI,
+ * so a vision model (MiniMax-VL-01) can actually read them. PDFs never reach
+ * here as PDFs — `resolveFileParts` rasterizes them to page images first,
+ * because the OpenAI-compatible schema has no PDF part type.
+ *
+ * `unsupportedFile` reports a file part we could NOT carry (a non-image blob, or
+ * a Google Files API `fileData` URI that only Gemini can resolve). It exists so
+ * the caller fails loudly: the alternative is what this code used to do for
+ * chat history — drop the binary and answer confidently about nothing.
  */
 export const buildMinimaxMessages = (
   contents: any,
   systemInstruction?: string
-): { messages: MinimaxMessage[]; hasFile: boolean } => {
+): { messages: MinimaxMessage[]; unsupportedFile: boolean } => {
   const messages: MinimaxMessage[] = [];
   if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
+
+  let unsupportedFile = false;
 
   const collectText = (parts: any): string =>
     (Array.isArray(parts) ? parts : [])
       .map((p: any) => (typeof p?.text === 'string' ? p.text : ''))
       .filter(Boolean)
       .join('\n');
-  const hasFilePart = (parts: any): boolean =>
-    (Array.isArray(parts) ? parts : []).some((p: any) => p?.inlineData || p?.fileData);
+
+  const collectImages = (parts: any): MinimaxContentPart[] => {
+    const images: MinimaxContentPart[] = [];
+    for (const p of Array.isArray(parts) ? parts : []) {
+      if (p?.inlineData?.data && typeof p.inlineData.mimeType === 'string') {
+        if (p.inlineData.mimeType.startsWith('image/')) {
+          images.push({
+            type: 'image_url',
+            image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` },
+          });
+        } else {
+          unsupportedFile = true;
+        }
+      } else if (p?.fileData || p?.inlineData) {
+        // A Files API URI, or inline data too malformed to send.
+        unsupportedFile = true;
+      }
+    }
+    return images;
+  };
+
+  /**
+   * A turn with images becomes a content-parts array; a text-only turn stays a
+   * plain string. Keeping the string form means every existing text-only
+   * request goes out byte-identical to before.
+   */
+  const toContent = (parts: any): string | MinimaxContentPart[] => {
+    const text = collectText(parts);
+    const images = collectImages(parts);
+    if (images.length === 0) return text;
+    return text ? [{ type: 'text', text }, ...images] : images;
+  };
+
   const toRole = (r: unknown): 'user' | 'assistant' =>
     r === 'model' || r === 'assistant' ? 'assistant' : 'user';
 
   // Shape 1: an array of role-tagged messages (chat history).
   if (Array.isArray(contents)) {
-    for (const m of contents) messages.push({ role: toRole(m?.role), content: collectText(m?.parts) });
-    return { messages, hasFile: false };
+    for (const m of contents) messages.push({ role: toRole(m?.role), content: toContent(m?.parts) });
+    return { messages, unsupportedFile };
   }
 
   const parts = contents?.parts;
   // Shape 2: { parts: [{ role, parts }, ...] } — also a message list (chatbot).
   if (Array.isArray(parts) && parts.length > 0 && parts.every((p: any) => p && p.role && p.parts)) {
-    for (const m of parts) messages.push({ role: toRole(m.role), content: collectText(m.parts) });
-    return { messages, hasFile: false };
+    for (const m of parts) messages.push({ role: toRole(m.role), content: toContent(m.parts) });
+    return { messages, unsupportedFile };
   }
 
   // Shape 3: a single user turn ({ parts: [{text}, {inlineData}] }).
-  messages.push({ role: 'user', content: collectText(parts) });
-  return { messages, hasFile: hasFilePart(parts) };
+  messages.push({ role: 'user', content: toContent(parts) });
+  return { messages, unsupportedFile };
 };
 
 /**
@@ -249,10 +320,9 @@ export const buildMinimaxMessages = (
  * the Google/Gemini settings.
  */
 const callMinimax = async (contents: any, config?: any): Promise<{ text: string; finishReason?: string }> => {
-  const url =
-    localStorage.getItem('smart_exam_minimax_url') || 'https://api.minimax.io/v1/chat/completions';
+  const url = localStorage.getItem('smart_exam_minimax_url') || MINIMAX_DEFAULT_URL;
   const apiKey = localStorage.getItem('smart_exam_minimax_api_key') || '';
-  const model = localStorage.getItem('smart_exam_minimax_model') || 'MiniMax-Text-01';
+  const model = localStorage.getItem('smart_exam_minimax_model') || MINIMAX_DEFAULT_MODEL;
 
   if (!apiKey) {
     throw new Error(
@@ -261,11 +331,16 @@ const callMinimax = async (contents: any, config?: any): Promise<{ text: string;
   }
 
   const { systemInstruction, responseMimeType, temperature, maxOutputTokens, timeoutMs } = config || {};
-  const { messages, hasFile } = buildMinimaxMessages(contents, systemInstruction);
+  const { messages, unsupportedFile } = buildMinimaxMessages(contents, systemInstruction);
 
-  if (hasFile) {
+  // Images and rasterized PDF pages travel as `image_url` parts. Anything else
+  // (an audio blob, a Word doc, a Gemini Files API URI) genuinely cannot be
+  // carried by this endpoint — say so rather than sending a request that
+  // describes nothing.
+  if (unsupportedFile) {
     throw new Error(
-      'MINIMAX_NO_FILE: MiniMax 模型暫不支援直接讀取 PDF／圖片檔案。請改用 Google 模型，或用「Manual Paste」貼上文字內容。'
+      'MINIMAX_UNSUPPORTED_FILE: MiniMax 只可以讀圖片同 PDF（PDF 會自動逐頁轉成圖片）。' +
+        '呢種檔案類型佢處理唔到 — 請改用 Google 模型，或用「Manual Paste」貼上文字內容。'
     );
   }
 
@@ -350,8 +425,8 @@ const callGeminiViaProxy = async (
     return callMinimax(contents, config);
   }
 
-  // Default is direct mode (false). Only proxy mode if explicitly set to 'true'.
-  const useProxy = localStorage.getItem('smart_exam_use_proxy') === 'true';
+  // Settings choice wins; otherwise the deployment's VITE_USE_GEMINI_PROXY decides.
+  const useProxy = shouldUseProxy();
   const proxyUrl = localStorage.getItem('smart_exam_proxy_url') || '/api/proxy-gemini';
   const apiKey = localStorage.getItem('smart_exam_api_key') || '';
 
