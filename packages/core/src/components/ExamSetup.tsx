@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ExamConfig, ExamMode, QuestionOrder, AnswerFormat } from '../types';
-import { loadQuestionBank } from '../utils/questionBank';
+import { loadQuestionBank, questionBankKey } from '../utils/questionBank';
 import { DEFAULT_MODEL } from '../constants/models';
 
 interface ExamSetupProps {
@@ -27,9 +27,14 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
     { poolSize: number; caseType: 'A' | 'B'; extractionComplete?: boolean } | null
   >(null);
 
+  // A Focus Range produces its own bank, so the "bank ready" panel and the
+  // Regenerate button must both address the bank for the range currently typed
+  // — otherwise they describe (and delete) the full-document bank instead.
+  const bankKey = docHash ? questionBankKey(docHash, contentRange.trim() || undefined) : null;
+
   useEffect(() => {
-    if (docHash) {
-      const bank = loadQuestionBank(docHash);
+    if (bankKey) {
+      const bank = loadQuestionBank(bankKey);
       setBankInfo(
         bank
           ? { poolSize: bank.poolSize, caseType: bank.caseType, extractionComplete: bank.extractionComplete }
@@ -38,12 +43,12 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
     } else {
       setBankInfo(null);
     }
-  }, [docHash]);
+  }, [bankKey]);
 
   const handleRegenerate = () => {
-    if (!docHash || !onRegenerateBank) return;
+    if (!bankKey || !onRegenerateBank) return;
     if (confirm('Regenerate question bank? The AI will re-analyze the document on the next exam. This deletes the cached pool.')) {
-      onRegenerateBank(docHash);
+      onRegenerateBank(bankKey);
       setBankInfo(null);
     }
   };
@@ -248,7 +253,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
           <div className="relative">
              <input 
               type="text" 
-              placeholder="e.g., 'Pages 10-20', 'Chapter 3'..."
+              placeholder="e.g., 'Question 179-250', 'Pages 10-20', 'Chapter 3'..."
               value={contentRange}
               onChange={(e) => setContentRange(e.target.value)}
               className="w-full p-3 pl-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
@@ -259,6 +264,9 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ onStart, docHash, onRegenerateBan
               </div>
             )}
           </div>
+          <p className="mt-2 text-xs text-slate-400 dark:text-slate-500 font-medium">
+            題號範圍（例如 <code>179-250</code>）會令 AI 只抽取該段題目，並為該範圍單獨建立題庫。
+          </p>
         </div>
 
         {mode === 'MOCK' && (

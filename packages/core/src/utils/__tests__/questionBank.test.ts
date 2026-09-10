@@ -5,6 +5,7 @@ import {
   loadQuestionBank,
   appendToQuestionBank,
   questionDedupKey,
+  questionBankKey,
   sampleQuestionsFromBank,
   CURRENT_EXTRACTOR_VERSION,
 } from '../questionBank';
@@ -198,5 +199,41 @@ describe('questionBank', () => {
       });
       expect(sampleQuestionsFromBank(bank, 10)).toEqual([]);
     });
+  });
+});
+
+describe('questionBankKey', () => {
+  it('is the document hash itself when no Focus Range is set', () => {
+    expect(questionBankKey('abc')).toBe('abc');
+    expect(questionBankKey('abc', '')).toBe('abc');
+    expect(questionBankKey('abc', '   ')).toBe('abc');
+  });
+
+  it('separates banks built for different Focus Ranges', () => {
+    const whole = questionBankKey('abc');
+    const early = questionBankKey('abc', 'Question 1-50');
+    const late = questionBankKey('abc', 'Question 179-250');
+
+    expect(new Set([whole, early, late]).size).toBe(3);
+  });
+
+  it('ignores case and whitespace so the same range reuses its bank', () => {
+    expect(questionBankKey('abc', 'Question 179-250')).toBe(questionBankKey('abc', '  question   179-250 '));
+  });
+
+  it('keeps different documents apart for the same range', () => {
+    expect(questionBankKey('abc', 'Q1-10')).not.toBe(questionBankKey('def', 'Q1-10'));
+  });
+
+  it('a range bank does not satisfy a full-document lookup', () => {
+    saveQuestionBank({
+      documentHash: questionBankKey('doc1', 'Question 179-250'),
+      questions: [q(1, 'ranged question')],
+      caseType: 'A',
+      modelUsed: 'm',
+    });
+
+    expect(loadQuestionBank(questionBankKey('doc1'))).toBeNull();
+    expect(loadQuestionBank(questionBankKey('doc1', 'Question 179-250'))?.questions).toHaveLength(1);
   });
 });

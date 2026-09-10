@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { extractQuestionBank } from '../geminiService';
+import { extractQuestionBank, parseQuestionRange } from '../geminiService';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '../../constants/models';
 
 /**
@@ -491,5 +491,142 @@ describe('extractQuestionBank — continuation rounds', () => {
     const body = getRequestBody(fetchMock, 0);
     expect(Array.isArray(body.contents)).toBe(true);
     expect(body.contents[0].parts[0].text).toContain('DOCUMENT CONTENT');
+  });
+});
+
+/**
+ * Focus Range behaviour. A range naming QUESTION NUMBERS ("Question 179-250")
+ * used to be pasted into the prompt verbatim as an unexplained "section", which
+ * on a long paper came back empty and surfaced as a fatal
+ * "NO_QUESTIONS: No questions were extracted."
+ */
+describe('extractQuestionBank — Focus Range', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('smart_exam_api_key', 'test-key');
+    localStorage.removeItem('smart_exam_use_proxy');
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('turns a question-number range into explicit skip/stop instructions', async () => {
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 3 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash', 'AUTO', 'Question 179-250');
+
+    const sysText = getRequestBody(fetchMock, 0).systemInstruction.parts[0].text as string;
+    expect(sysText).toContain('NUMBERED 179 THROUGH 250');
+    expect(sysText).toContain('NOT at the beginning of the document');
+    expect(sysText).toContain('at most 72');
+    expect(sysText).not.toContain('ONLY focus on the following section');
+  });
+
+  it('keeps the descriptive form for page/chapter ranges', async () => {
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 2 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash', 'AUTO', 'Pages 10-20');
+
+    const sysText = getRequestBody(fetchMock, 0).systemInstruction.parts[0].text as string;
+    expect(sysText).toContain('ONLY focus on the following section: "Pages 10-20"');
+    expect(sysText).not.toContain('NUMBERED 10 THROUGH 20');
+  });
+
+  it('caps the model-reported total at the range size instead of chasing the whole document', async () => {
+    // The model reports the WHOLE paper's 250 questions while the range only
+    // holds 5. Unclamped, stillShortOfTotal() stays true and extraction burns
+    // all 11 continuation rounds, then reports the complete range as incomplete.
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 1, count: 5 }), { total: 250 }))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    const result = await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash', 'AUTO', 'Q10-14');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.questions).toHaveLength(5);
+    expect(result.extractionComplete).toBe(true);
+  });
+
+  it('positions the ordinal fallback on the range, not on the top of the document', async () => {
+    const same = makeQuestions({ idStart: 1, count: 3 });
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse(same, { finishReason: 'MAX_TOKENS' }))
+      .mockResolvedValueOnce(makeBankResponse(same, { finishReason: 'MAX_TOKENS' }))
+      .mockResolvedValueOnce(makeBankResponse(same, { finishReason: 'MAX_TOKENS' }));
+
+    await extractQuestionBank({ text: 'doc' }, 30, 'gemini-2.5-flash', 'AUTO', '179-250');
+
+    const fallbackText = getRequestBody(fetchMock, 2).systemInstruction.parts[0].text as string;
+    expect(fallbackText).toContain('RESUME at the question NUMBERED 182');
+    expect(fallbackText).not.toContain('SKIP the FIRST 3 questions');
+  });
+
+  it('slides the text window forward when the range is past the first 100k chars', async () => {
+    // 250k chars: the requested questions live in a later window, so round 1
+    // legitimately finds nothing. That must not be fatal.
+    const bigText = 'A'.repeat(250000);
+    fetchMock
+      .mockResolvedValueOnce(makeBankResponse([]))
+      .mockResolvedValueOnce(makeBankResponse([]))
+      .mockResolvedValueOnce(makeBankResponse(makeQuestions({ idStart: 179, count: 4 })))
+      .mockResolvedValueOnce(makeBankResponse([]));
+
+    const result = await extractQuestionBank({ text: bigText }, 30, 'gemini-2.5-flash', 'AUTO', 'Question 179-250');
+
+    expect(result.questions).toHaveLength(4);
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('reports an actionable range error when the document has nothing in the range', async () => {
+    fetchMock.mockResolvedValue(makeBankResponse([]));
+
+    await expect(
+      extractQuestionBank({ text: 'short doc' }, 30, 'gemini-2.5-flash', 'AUTO', 'Question 179-250')
+    ).rejects.toThrow(/NO_QUESTIONS_IN_RANGE/);
+  });
+
+  it('still reports the generic error when no range was given', async () => {
+    fetchMock.mockResolvedValue(makeBankResponse([]));
+
+    await expect(extractQuestionBank({ text: 'short doc' }, 30, 'gemini-2.5-flash')).rejects.toThrow(
+      /NO_QUESTIONS: No questions were extracted/
+    );
+  });
+});
+
+describe('parseQuestionRange', () => {
+  it.each([
+    ['179-250', 179, 250],
+    ['Question 179-250', 179, 250],
+    ['Q179 - Q250', 179, 250],
+    ['questions 179 to 250', 179, 250],
+    ['179–250', 179, 250],
+    ['第179-250題', 179, 250],
+    ['12~30', 12, 30],
+  ])('parses %s', (input, start, end) => {
+    expect(parseQuestionRange(input)).toEqual({ start, end });
+  });
+
+  it.each([
+    [undefined],
+    [''],
+    ['   '],
+    ['Chapter 3'],
+    ['Pages 10-20'],
+    ['Section 2-4'],
+    ['第3章'],
+    ['250-179'],
+    ['0-10'],
+  ])('does not parse %s as a question range', input => {
+    expect(parseQuestionRange(input)).toBeNull();
   });
 });
