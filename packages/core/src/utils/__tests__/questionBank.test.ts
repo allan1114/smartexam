@@ -202,6 +202,26 @@ describe('questionBank', () => {
   });
 });
 
+describe('questionBankKey — page-range chunking', () => {
+  it('gives each PDF page chunk its own bank', () => {
+    // Reading a long PDF through MiniMax means several passes over different
+    // page ranges. If they shared a key, chunk 2 would be served chunk 1's
+    // questions and the rest of the document would silently never load.
+    const keys = ['Pages 1-20', 'Pages 21-40', 'Pages 41-60'].map(r =>
+      questionBankKey('doc', r)
+    );
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it('separates a page chunk from the whole-document bank', () => {
+    expect(questionBankKey('doc', 'Pages 1-20')).not.toBe(questionBankKey('doc'));
+  });
+
+  it('reuses the same bank for the same chunk regardless of spacing or case', () => {
+    expect(questionBankKey('doc', 'Pages 1-20')).toBe(questionBankKey('doc', '  pages 1-20 '));
+  });
+});
+
 describe('questionBankKey', () => {
   it('is the document hash itself when no Focus Range is set', () => {
     expect(questionBankKey('abc')).toBe('abc');

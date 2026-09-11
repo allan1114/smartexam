@@ -39,10 +39,19 @@ export interface RasterizedPage {
 export interface RasterizeOptions {
   maxPages?: number;
   scale?: number;
+  /**
+   * 1-based, inclusive slice of the document to render. Without it the whole
+   * PDF must fit under `maxPages`; with it only the slice has to. This is what
+   * makes a long PDF usable at all on an images-only provider.
+   */
+  pageRange?: { start: number; end: number };
 }
 
-/** Thrown when the PDF has more pages than we will rasterize. */
+/** Thrown when the selected pages exceed what we will rasterize. */
 export const PDF_TOO_MANY_PAGES = 'MINIMAX_PDF_TOO_MANY_PAGES';
+
+/** Thrown when a page range starts past the end of the document. */
+export const PDF_PAGE_RANGE_EMPTY = 'MINIMAX_PDF_PAGE_RANGE_EMPTY';
 
 const base64ToUint8Array = (base64: string): Uint8Array => {
   const binary = atob(base64);
@@ -105,16 +114,38 @@ export const rasterizePdfToImages = async (
   const doc = await pdfjs.getDocument({ data: base64ToUint8Array(base64) }).promise;
   const pageCount: number = doc.numPages;
 
-  if (pageCount > maxPages) {
+  const range = options?.pageRange;
+  if (range && range.start > pageCount) {
     throw new Error(
-      `${PDF_TOO_MANY_PAGES}: 呢份 PDF 有 ${pageCount} 頁，超過 MiniMax 圖像模式嘅 ${maxPages} 頁上限。` +
-        `MiniMax 唔可以直接讀 PDF，要逐頁轉成圖片，頁數太多會令請求過大。` +
-        `請改用 Google 模型（可直接讀取整份 PDF），或用「Focus Range」分段處理。`
+      `${PDF_PAGE_RANGE_EMPTY}: 呢份 PDF 只有 ${pageCount} 頁，但你要求由第 ${range.start} 頁開始。` +
+        `請改一個喺 1-${pageCount} 範圍內嘅頁數。`
+    );
+  }
+
+  // Clamp to the document: asking for 1-20 of a 12-page file should give 12
+  // pages, not an error.
+  const firstPage = range ? range.start : 1;
+  const lastPage = range ? Math.min(range.end, pageCount) : pageCount;
+  const selectedCount = lastPage - firstPage + 1;
+
+  if (selectedCount > maxPages) {
+    // The advice here has to be advice that WORKS. An earlier version pointed at
+    // Focus Range generically, which does nothing on this path unless it names
+    // pages — the rasterizer runs before the range ever reaches the prompt.
+    const rangeNote = range
+      ? `你揀咗第 ${range.start}-${range.end} 頁，即 ${selectedCount} 頁，`
+      : `呢份 PDF 有 ${pageCount} 頁，`;
+    throw new Error(
+      `${PDF_TOO_MANY_PAGES}: ${rangeNote}超過 MiniMax 圖像模式嘅 ${maxPages} 頁上限。` +
+        `MiniMax 讀唔到 PDF 本身，要逐頁轉成圖片，頁數太多會令請求過大。兩個做法：` +
+        `（1）喺 ⚙️ Settings 改用 Google 模型，可以一次過直接讀完整份 ${pageCount} 頁 PDF；` +
+        `（2）留喺 MiniMax，喺考試設定嘅「Focus Range」填頁數範圍，例如「Pages 1-${maxPages}」，` +
+        `每次讀一段（注意：要寫明「Pages」，淨係寫「1-${maxPages}」會被當成題號範圍）。`
     );
   }
 
   const pages: RasterizedPage[] = [];
-  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+  for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber++) {
     const page = await doc.getPage(pageNumber);
     const viewport = page.getViewport({ scale });
 

@@ -172,9 +172,24 @@ parts only — there is no PDF part**. So the file path differs from Google's:
   `MiniMax-Text-01`: a text-only model cannot see an image however correctly it
   is attached.
 - Page cap: `DEFAULT_MAX_PDF_PAGES` (20). Every page is re-sent on each
-  continuation round, so request size grows fast — past the cap the user gets
-  `MINIMAX_PDF_TOO_MANY_PAGES` naming the real page count. For a big paper,
-  Google is the right answer.
+  continuation round, so request size grows fast.
+- **A long PDF is read in page chunks.** `parsePageRange` recognizes page
+  wording in the Focus Range input ("Pages 1-20", "pp. 21-40", "第1-20頁") and
+  `resolveFileParts` slices the file *before* rasterizing. `parseQuestionRange`
+  deliberately ignores page wording and `parsePageRange` deliberately ignores a
+  bare "10-20", so the two partition the input: one shapes the prompt, the
+  other slices the document. A test asserts no input matches both.
+  - Bank caching already works per chunk: `questionBankKey(docHash,
+    contentRange)` puts "Pages 1-20" and "Pages 21-40" in separate banks. Do not
+    bypass it, or chunk 2 serves chunk 1's questions and the rest of the
+    document silently never loads.
+  - The cap error's advice must stay actionable. An earlier version said "use
+    Focus Range", which does nothing on this path unless the range names PAGES —
+    the rasterizer runs before any range reaches the prompt. It now names both
+    real options (switch to Google, or a `Pages X-Y` range) and quotes the
+    document's true page count.
+- For a genuinely long paper (hundreds of pages), Google is the right answer:
+  Gemini reads the whole PDF in one pass, at any length.
 
 ### ⚠️ Keep the model list in sync (two places)
 

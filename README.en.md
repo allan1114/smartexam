@@ -67,7 +67,9 @@
   - Question count (1-100)
   - Exam duration (30-240 minutes)
   - Question order (Sequential/Random)
-  - Content range focus (specific pages or chapters)
+  - Focus Range: question numbers (`Question 179-250`), chapters, or **page numbers** (`Pages 1-20`)
+    - On **MiniMax**, a page range genuinely limits which pages are read — MiniMax rasterizes each page, so a long PDF must be taken in chunks (each chunk gets its own question bank)
+    - On **Google**, no chunking is needed — Gemini reads the whole PDF in one pass
 
 ### 🆕 Document Management & Reliability (Latest)
 - **📁 Saved Documents (skip re-upload)**: Every uploaded/pasted document is recorded in a "Saved Documents" list — re-open it from the Home page with one click, no re-upload needed
